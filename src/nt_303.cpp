@@ -12,17 +12,41 @@
 #include <cstddef>
 
 namespace {
-    constexpr size_t HEAP_SIZE = 4096;
+    constexpr size_t HEAP_SIZE = 8192;
+    constexpr size_t BLOCK_SIZE = 64;
+    constexpr size_t NUM_BLOCKS = HEAP_SIZE / BLOCK_SIZE;
+    
     alignas(8) char heapPool[HEAP_SIZE];
+    void* freeList = nullptr;
     size_t heapOffset = 0;
+    
+    void* allocBlock() {
+        if (freeList) {
+            void* ptr = freeList;
+            freeList = *static_cast<void**>(freeList);
+            return ptr;
+        }
+        if (heapOffset + BLOCK_SIZE > HEAP_SIZE) {
+            for (;;) {}
+        }
+        void* ptr = heapPool + heapOffset;
+        heapOffset += BLOCK_SIZE;
+        return ptr;
+    }
+    
+    void freeBlock(void* ptr) {
+        if (!ptr) return;
+        if (ptr < heapPool || ptr >= heapPool + HEAP_SIZE) return;
+        *static_cast<void**>(ptr) = freeList;
+        freeList = ptr;
+    }
 }
 
 void* operator new(size_t size) {
-    size = (size + 7) & ~7;
-    if (heapOffset + size > HEAP_SIZE) return nullptr;
-    void* ptr = heapPool + heapOffset;
-    heapOffset += size;
-    return ptr;
+    if (size > BLOCK_SIZE) {
+        for (;;) {}
+    }
+    return allocBlock();
 }
 
 void* operator new[](size_t size) {
@@ -30,19 +54,19 @@ void* operator new[](size_t size) {
 }
 
 void operator delete(void* ptr) noexcept {
-    (void)ptr;
+    freeBlock(ptr);
 }
 
 void operator delete[](void* ptr) noexcept {
-    (void)ptr;
+    freeBlock(ptr);
 }
 
 void operator delete(void* ptr, size_t) noexcept {
-    (void)ptr;
+    freeBlock(ptr);
 }
 
 void operator delete[](void* ptr, size_t) noexcept {
-    (void)ptr;
+    freeBlock(ptr);
 }
 
 #include "compat.h"
@@ -152,6 +176,15 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
     alg->currentCVNote = 60;
     alg->lastMidiChannel = 0;
     
+    alg->synth.setCutoff(parameters[kParamCutoff].def);
+    alg->synth.setResonance(parameters[kParamResonance].def);
+    alg->synth.setEnvMod(parameters[kParamEnvMod].def);
+    alg->synth.setDecay(parameters[kParamDecay].def);
+    alg->synth.setAccent(parameters[kParamAccent].def);
+    alg->synth.setWaveform(parameters[kParamWaveform].def / 100.0);
+    alg->synth.setVolume(parameters[kParamVolume].def);
+    alg->synth.setSlideTime(parameters[kParamSlideTime].def);
+    
     return alg;
 }
 
@@ -209,7 +242,10 @@ void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
     
     for (int i = 0; i < numFrames; ++i) {
         if (gateCV) {
-            bool gateHigh = gateCV[i] > 1.0f;
+            // Schmitt trigger hysteresis: rise at >1.5V, fall at <1.0V
+            bool gateHigh = pThis->prevGate 
+                ? (gateCV[i] >= 1.0f)   // Already high: stay high until <1.0V
+                : (gateCV[i] > 1.5f);   // Currently low: need >1.5V to trigger
             
             if (gateHigh && !pThis->prevGate) {
                 int midiNote = cvToMidiNote(pitchCV ? pitchCV[i] : 0.0f);
@@ -228,7 +264,8 @@ void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
                 }
             }
             else if (!gateHigh && pThis->prevGate) {
-                pThis->synth.noteOn(pThis->currentCVNote, 0);
+                // Use allNotesOff to ensure clean release regardless of note tracking
+                pThis->synth.allNotesOff();
                 pThis->cvNoteActive = false;
             }
             

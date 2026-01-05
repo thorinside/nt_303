@@ -379,6 +379,10 @@ void midiMessage(_NT_algorithm* self, uint8_t b0, uint8_t b1, uint8_t b2) {
         case 0x80:
             pThis->synth.noteOn(b1, 0);
             break;
+        case 0xB0:
+            if (b1 == 120 || b1 == 123)
+                pThis->synth.allNotesOff();
+            break;
         case 0xE0: {
             int bend = ((b2 << 7) | b1) - 8192;
             double semitones = bend * 2.0 / 8192.0;

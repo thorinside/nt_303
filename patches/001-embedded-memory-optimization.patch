@@ -2082,10 +2082,10 @@ index f6a3f64..f8415e9 100644
 +
 +#endif // rosic_MipMappedWaveTable_h
 diff --git a/Source/DSPCode/rosic_Open303.cpp b/Source/DSPCode/rosic_Open303.cpp
-index 1ef8ac7..76b70de 100644
+index 1ef8ac7..498459a 100644
 --- a/Source/DSPCode/rosic_Open303.cpp
 +++ b/Source/DSPCode/rosic_Open303.cpp
-@@ -1,331 +1,377 @@
+@@ -1,331 +1,359 @@
 -#include "rosic_Open303.h"
 -
 -using namespace rosic;
@@ -2446,6 +2446,7 @@ index 1ef8ac7..76b70de 100644
 +  accentGain       =     0.0;
 +  pitchWheelFactor =     1.0;
 +  currentNote      =    -1;
++  heldNote         =    -1;
 +  noteOffCountDown =     0;
 +  slideToNextNote  = false;
 +  idle             = true;
@@ -2616,47 +2617,39 @@ index 1ef8ac7..76b70de 100644
 +    return;
 +  }
 +
-+  if( velocity == 0 ) // velocity zero indicates note-off events
++  if( velocity == 0 )
 +  {
-+    MidiNoteEvent releasedNote(noteNumber, 0);
-+    // Remove note from buffer
-+    for(int i = 0; i < noteCount; i++) {
-+      if(noteBuffer[i].getKey() == releasedNote.getKey()) {
-+        for(int j = i; j < noteCount - 1; j++)
-+          noteBuffer[j] = noteBuffer[j + 1];
-+        noteCount--;
-+        break;
++    if( noteNumber == currentNote )
++    {
++      if( heldNote != -1 )
++      {
++        currentNote = heldNote;
++        heldNote = -1;
++        slideToNote(currentNote, false);
++      }
++      else
++      {
++        currentNote = -1;
++        ampEnv.noteOff();
 +      }
 +    }
-+    if( (noteCount == 0) )
++    else if( noteNumber == heldNote )
 +    {
-+      currentNote = -1;
++      heldNote = -1;
 +    }
-+    else
-+    {
-+      currentNote = noteBuffer[0].getKey();
-+    }
-+    releaseNote(noteNumber);
 +  }
-+  else // velocity was not zero, so this is an actual note-on
++  else
 +  {
-+    // check if the note-list is empty (indicating that currently no note is playing) - if so,
-+    // trigger a new note, otherwise, slide to the new note:
-+    if( (noteCount == 0) )
++    if( currentNote == -1 )
++    {
++      currentNote = noteNumber;
 +      triggerNote(noteNumber, velocity >= 100);
++    }
 +    else
++    {
++      heldNote = currentNote;
++      currentNote = noteNumber;
 +      slideToNote(noteNumber, velocity >= 100);
-+
-+    currentNote = noteNumber;
-+
-+    // and we need to add the new note to our list, of course:
-+    MidiNoteEvent newNote(noteNumber, velocity);
-+    // Add note to front of buffer
-+    if(noteCount < MAX_NOTES) {
-+      for(int i = noteCount; i > 0; i--)
-+        noteBuffer[i] = noteBuffer[i - 1];
-+      noteBuffer[0] = newNote;
-+      noteCount++;
 +    }
 +  }
 +  idle = false;
@@ -2664,9 +2657,9 @@ index 1ef8ac7..76b70de 100644
 +
 +void Open303::allNotesOff()
 +{
-+  noteCount = 0;
 +  ampEnv.noteOff();
 +  currentNote = -1;
++  heldNote = -1;
 +}
 +
 +void Open303::triggerNote(int noteNumber, bool hasAccent)
@@ -2725,18 +2718,7 @@ index 1ef8ac7..76b70de 100644
 +
 +void Open303::releaseNote(int noteNumber)
 +{
-+  // check if the note-list is empty now. if so, trigger a release, otherwise slide to the note
-+  // at the beginning of the list (this is the most recent one which is still in the list). this
-+  // initiates a slide back to the most recent note that is still being held:
-+  if( (noteCount == 0) )
-+  {
-+    ampEnv.noteOff();
-+  }
-+  else
-+  {
-+    // initiate slide back:
-+    oscFreq     = pitchToFreq(currentNote);
-+  }
++  ampEnv.noteOff();
 +}
 +
 +void Open303::setMainEnvDecay(double newDecay)
@@ -2795,10 +2777,10 @@ index 1ef8ac7..76b70de 100644
 +  n2 = 1.0; // test
 +}
 diff --git a/Source/DSPCode/rosic_Open303.h b/Source/DSPCode/rosic_Open303.h
-index f4ec6b4..d84769b 100644
+index f4ec6b4..94a599b 100644
 --- a/Source/DSPCode/rosic_Open303.h
 +++ b/Source/DSPCode/rosic_Open303.h
-@@ -1,411 +1,423 @@
+@@ -1,411 +1,419 @@
 -#ifndef rosic_Open303_h
 -#define rosic_Open303_h
 -
@@ -3523,14 +3505,10 @@ index f4ec6b4..d84769b 100644
 +    double pitchWheelFactor; // scale factor for oscillator frequency from pitch-wheel
 +    double n1, n2;           // normalizers for the RCs that are driven by the MEG
 +    int    currentNote;      // note which is currently played (-1 if none)
++    int    heldNote;         // previously held note to slide back to (-1 if none)
 +    int    noteOffCountDown; // a countdown variable till next note-off in sequencer mode
 +    bool   slideToNextNote;  // indicate that we need to slide to the next note in sequencer mode
 +    bool   idle;             // flag to indicate that we have currently nothing to do in getSample
-+
-+    // Fixed-size note buffer (replaces std::list for embedded use)
-+    static const int MAX_NOTES = 8;
-+    MidiNoteEvent noteBuffer[MAX_NOTES];
-+    int noteCount;
 +
 +  };
 +

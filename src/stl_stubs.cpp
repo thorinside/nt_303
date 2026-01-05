@@ -10,6 +10,11 @@ extern "C" double sinh(double x) {
     return (ex - 1.0/ex) * 0.5;
 }
 
+extern "C" double tanh(double x) {
+    double ex = exp(2.0 * x);
+    return (ex - 1.0) / (ex + 1.0);
+}
+
 struct ListNodeBase {
     ListNodeBase* next;
     ListNodeBase* prev;

@@ -151,7 +151,7 @@ static const _NT_parameter parameters[] = {
     { .name = "Waveform",   .min = 0,    .max = 100,   .def = 0,    .unit = kNT_unitPercent, .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Volume",     .min = -40,  .max = 6,     .def = -12,  .unit = kNT_unitDb,      .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Slide Time", .min = 1,    .max = 200,   .def = 60,   .unit = kNT_unitMs,      .scaling = kNT_scalingNone, .enumStrings = NULL },
-    { .name = "MIDI Ch",    .min = 1,    .max = 16,    .def = 1,    .unit = kNT_unitNone,    .scaling = kNT_scalingNone, .enumStrings = NULL },
+    { .name = "MIDI Ch",    .min = 0,    .max = 16,    .def = 0,    .unit = kNT_unitNone,    .scaling = kNT_scalingNone, .enumStrings = NULL },
     NT_PARAMETER_CV_INPUT("Pitch CV", 0, 0)
     NT_PARAMETER_CV_INPUT("Gate", 0, 0)
     NT_PARAMETER_CV_INPUT("Accent CV", 0, 0)
@@ -341,9 +341,12 @@ void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
 void midiMessage(_NT_algorithm* self, uint8_t b0, uint8_t b1, uint8_t b2) {
     _NT303Algorithm* pThis = (_NT303Algorithm*)self;
     
-    int channel = b0 & 0x0f;
-    if (channel != pThis->lastMidiChannel)
-        return;
+    int midiChParam = pThis->v[kParamMidiChannel];
+    if (midiChParam > 0) {
+        int channel = b0 & 0x0f;
+        if (channel != midiChParam - 1)
+            return;
+    }
     
     int status = b0 & 0xf0;
     

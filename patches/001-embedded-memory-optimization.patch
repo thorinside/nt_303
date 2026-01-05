@@ -389,10 +389,61 @@ index f6a3f64..5fc4627 100644
  
    };
 diff --git a/Source/DSPCode/rosic_Open303.cpp b/Source/DSPCode/rosic_Open303.cpp
-index 1ef8ac7..dd14a42 100644
+index 1ef8ac7..576586a 100644
 --- a/Source/DSPCode/rosic_Open303.cpp
 +++ b/Source/DSPCode/rosic_Open303.cpp
-@@ -168,14 +168,22 @@ void Open303::noteOn(int noteNumber, int velocity)
+@@ -5,12 +5,13 @@ using namespace rosic;
+ //-------------------------------------------------------------------------------------------------
+ // construction/destruction:
+ 
+-Open303::Open303()
+-{
+-  tuning           =   440.0;
+-  ampScaler        =     1.0;
+-  oscFreq          =   440.0;
+-  sampleRate       = 44100.0;
++Open303::Open303()
++{
++  oversampling     =       4;
++  tuning           =   440.0;
++  ampScaler        =     1.0;
++  oscFreq          =   440.0;
++  sampleRate       = 44100.0;
+   level            =   -12.0;
+   levelByVel       =    12.0;
+   accent           =     0.0;
+@@ -97,11 +98,25 @@ void Open303::setSampleRate(double newSampleRate)
+ 
+   highpass1.setSampleRate     (  oversampling*newSampleRate);
+ 
+-  oscillator.setSampleRate    (  oversampling*newSampleRate);
+-  filter.setSampleRate        (  oversampling*newSampleRate);
+-}
+-
+-void Open303::setCutoff(double newCutoff)
++  oscillator.setSampleRate    (  oversampling*newSampleRate);
++  filter.setSampleRate        (  oversampling*newSampleRate);
++}
++
++void Open303::setOversampling(int newOversampling)
++{
++  // Clamp to valid values: 1, 2, or 4
++  if (newOversampling <= 1)
++    oversampling = 1;
++  else if (newOversampling <= 2)
++    oversampling = 2;
++  else
++    oversampling = 4;
++  
++  // Re-apply sample rate to update all internal components
++  setSampleRate(sampleRate);
++}
++
++void Open303::setCutoff(double newCutoff)
+ {
+   cutoff = newCutoff;
+   calculateEnvModScalerAndOffset();
+@@ -168,14 +183,22 @@ void Open303::noteOn(int noteNumber, int velocity)
    if( velocity == 0 ) // velocity zero indicates note-off events
    {
      MidiNoteEvent releasedNote(noteNumber, 0);
@@ -418,7 +469,7 @@ index 1ef8ac7..dd14a42 100644
      }
      releaseNote(noteNumber);
    }
-@@ -183,7 +191,7 @@ void Open303::noteOn(int noteNumber, int velocity)
+@@ -183,7 +206,7 @@ void Open303::noteOn(int noteNumber, int velocity)
    {
      // check if the note-list is empty (indicating that currently no note is playing) - if so,
      // trigger a new note, otherwise, slide to the new note:
@@ -427,7 +478,7 @@ index 1ef8ac7..dd14a42 100644
        triggerNote(noteNumber, velocity >= 100);
      else
        slideToNote(noteNumber, velocity >= 100);
-@@ -192,14 +200,20 @@ void Open303::noteOn(int noteNumber, int velocity)
+@@ -192,14 +215,20 @@ void Open303::noteOn(int noteNumber, int velocity)
  
      // and we need to add the new note to our list, of course:
      MidiNoteEvent newNote(noteNumber, velocity);
@@ -450,7 +501,7 @@ index 1ef8ac7..dd14a42 100644
    ampEnv.noteOff();
    currentNote = -1;
  }
-@@ -263,7 +277,7 @@ void Open303::releaseNote(int noteNumber)
+@@ -263,7 +292,7 @@ void Open303::releaseNote(int noteNumber)
    // check if the note-list is empty now. if so, trigger a release, otherwise slide to the note
    // at the beginning of the list (this is the most recent one which is still in the list). this
    // initiates a slide back to the most recent note that is still being held:
@@ -460,7 +511,7 @@ index 1ef8ac7..dd14a42 100644
      ampEnv.noteOff();
    }
 diff --git a/Source/DSPCode/rosic_Open303.h b/Source/DSPCode/rosic_Open303.h
-index f4ec6b4..f2f58ac 100644
+index f4ec6b4..e9ce75e 100644
 --- a/Source/DSPCode/rosic_Open303.h
 +++ b/Source/DSPCode/rosic_Open303.h
 @@ -11,7 +11,7 @@
@@ -472,7 +523,33 @@ index f4ec6b4..f2f58ac 100644
  #include <limits>
  
  namespace rosic
-@@ -306,7 +306,10 @@ namespace rosic
+@@ -41,8 +41,14 @@ namespace rosic
+     //-----------------------------------------------------------------------------------------------
+     // parameter settings:
+ 
+-    /** Sets the sample-rate (in Hz). */
+-    void setSampleRate(double newSampleRate);
++    /** Sets the sample-rate (in Hz). */
++    void setSampleRate(double newSampleRate);
++
++    /** Sets the oversampling factor (1, 2, or 4). Higher values = better quality, more CPU. */
++    void setOversampling(int newOversampling);
++
++    /** Gets the current oversampling factor. */
++    int getOversampling() const { return oversampling; }
+ 
+     /** Sets up the waveform continuously between saw and square - the input should be in the range 
+     0...1 where 0 means pure saw and 1 means pure square. */
+@@ -277,7 +283,7 @@ namespace rosic
+     main envelope generator. */
+     void updateNormalizer2();
+ 
+-    static const int oversampling = 4;
++    int oversampling;
+ 
+     double tuning;           // master tunung for A4 in Hz
+     double ampScaler;        // final volume as raw factor
+@@ -306,7 +312,10 @@ namespace rosic
      bool   slideToNextNote;  // indicate that we need to slide to the next note in sequencer mode
      bool   idle;             // flag to indicate that we have currently nothing to do in getSample
  

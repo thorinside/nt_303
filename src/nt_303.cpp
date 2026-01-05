@@ -121,6 +121,7 @@ enum {
     kParamWaveform,
     kParamVolume,
     kParamSlideTime,
+    kParamOversampling,
     kParamMidiChannel,
     kParamPitchCV,
     kParamGate,
@@ -141,6 +142,8 @@ struct _NT303Algorithm : public _NT_algorithm {
     float smoothDecay;
 };
 
+static char const * const enumStringsOversampling[] = { "1x", "2x", "4x" };
+
 static const _NT_parameter parameters[] = {
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE("Output", 1, 13)
     { .name = "Cutoff",     .min = 20,   .max = 20000, .def = 1000, .unit = kNT_unitHz,      .scaling = kNT_scalingNone, .enumStrings = NULL },
@@ -151,6 +154,7 @@ static const _NT_parameter parameters[] = {
     { .name = "Waveform",   .min = 0,    .max = 100,   .def = 0,    .unit = kNT_unitPercent, .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Volume",     .min = -40,  .max = 6,     .def = -12,  .unit = kNT_unitDb,      .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Slide Time", .min = 1,    .max = 200,   .def = 60,   .unit = kNT_unitMs,      .scaling = kNT_scalingNone, .enumStrings = NULL },
+    { .name = "Oversample", .min = 0,    .max = 2,     .def = 1,    .unit = kNT_unitEnum,    .scaling = kNT_scalingNone, .enumStrings = enumStringsOversampling },
     { .name = "MIDI Ch",    .min = 0,    .max = 16,    .def = 0,    .unit = kNT_unitNone,    .scaling = kNT_scalingNone, .enumStrings = NULL },
     NT_PARAMETER_CV_INPUT("Pitch CV", 0, 0)
     NT_PARAMETER_CV_INPUT("Gate", 0, 0)
@@ -165,7 +169,8 @@ static const uint8_t pageSound[] = {
     kParamAccent,
     kParamWaveform,
     kParamVolume,
-    kParamSlideTime
+    kParamSlideTime,
+    kParamOversampling
 };
 
 static const uint8_t pageRouting[] = {
@@ -225,6 +230,9 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
     alg->synth.setVolume(parameters[kParamVolume].def);
     alg->synth.setSlideTime(parameters[kParamSlideTime].def * 0.005);
     
+    static const int oversamplingValues[] = {1, 2, 4};
+    alg->synth.setOversampling(oversamplingValues[parameters[kParamOversampling].def]);
+    
     return alg;
 }
 
@@ -256,6 +264,11 @@ void parameterChanged(_NT_algorithm* self, int p) {
         case kParamSlideTime:
             pThis->synth.setSlideTime(pThis->v[kParamSlideTime] * 0.005);
             break;
+        case kParamOversampling: {
+            static const int oversamplingValues[] = {1, 2, 4};
+            pThis->synth.setOversampling(oversamplingValues[pThis->v[kParamOversampling]]);
+            break;
+        }
         case kParamMidiChannel:
             pThis->lastMidiChannel = pThis->v[kParamMidiChannel] - 1;
             break;

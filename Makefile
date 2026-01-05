@@ -97,10 +97,11 @@ OBJECTS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CPP_SOURCES)) $(patsubst %.c,$(BUI
 all: $(PATCH_MARKER) $(OUTPUT)
 
 $(PATCH_MARKER):
+	@cd open303 && git checkout -- . 2>/dev/null || true
 	@for p in $(PATCH_DIR)/*.patch; do \
 		if [ -f "$$p" ]; then \
 			echo "Applying $$p..."; \
-			(cd open303 && git apply --check ../$$p 2>/dev/null && git apply ../$$p) || echo "  (already applied)"; \
+			cd open303 && git apply --ignore-whitespace ../$$p; \
 		fi; \
 	done
 	@touch $(PATCH_MARKER)

@@ -331,7 +331,7 @@ void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
         }
         
         float sample = static_cast<float>(pThis->synth.getSample());
-        sample *= 5.0f;
+        sample *= 25.0f;
         
         if (replace)
             out[i] = sample;

@@ -427,7 +427,7 @@ void setupUi(_NT_algorithm* self, _NT_float3& pots) {
 }
 
 static const _NT_factory factory = {
-    .guid = NT_MULTICHAR('N', 's', '0', '3'),
+    .guid = NT_MULTICHAR('T', 'h', 'T', 'B'),
     .name = "NT-303",
     .description = "TB-303 Bass Synth (Open303)",
     .numSpecifications = 0,

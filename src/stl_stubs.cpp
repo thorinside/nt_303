@@ -3,6 +3,13 @@
  * MIT License - Copyright (c) 2025
  */
 
+#include <cmath>
+
+extern "C" double sinh(double x) {
+    double ex = exp(x);
+    return (ex - 1.0/ex) * 0.5;
+}
+
 struct ListNodeBase {
     ListNodeBase* next;
     ListNodeBase* prev;

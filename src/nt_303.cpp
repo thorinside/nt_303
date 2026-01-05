@@ -284,7 +284,7 @@ void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
     float targetRes = (float)pThis->v[kParamResonance];
     float targetDecay = (float)pThis->v[kParamDecay];
     
-    constexpr float smoothCoeff = 0.00005f;
+    constexpr float smoothCoeff = 0.001f;
     
     for (int i = 0; i < numFrames; ++i) {
         pThis->smoothCutoff += smoothCoeff * (targetCutoff - pThis->smoothCutoff);

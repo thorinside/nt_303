@@ -231,7 +231,7 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
     alg->synth.setAccent(parameters[kParamAccent].def);
     alg->synth.setWaveform(parameters[kParamWaveform].def / 100.0);
     alg->synth.setVolume(parameters[kParamVolume].def);
-    alg->synth.setSlideTime(parameters[kParamSlideTime].def * 0.005);
+    alg->synth.setSlideTime(parameters[kParamSlideTime].def);
     
     static const int oversamplingValues[] = {1, 2, 4};
     alg->synth.setOversampling(oversamplingValues[parameters[kParamOversampling].def]);
@@ -265,7 +265,7 @@ void parameterChanged(_NT_algorithm* self, int p) {
             pThis->synth.setVolume(pThis->v[kParamVolume]);
             break;
         case kParamSlideTime:
-            pThis->synth.setSlideTime(pThis->v[kParamSlideTime] * 0.005);
+            pThis->synth.setSlideTime(pThis->v[kParamSlideTime]);
             break;
         case kParamOversampling: {
             static const int oversamplingValues[] = {1, 2, 4};
@@ -319,29 +319,30 @@ void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
         }
 
         if (gateCV) {
-            // Schmitt trigger hysteresis: rise at >1.5V, fall at <1.0V
             bool gateHigh = pThis->prevGate 
-                ? (gateCV[i] >= 1.0f)   // Already high: stay high until <1.0V
-                : (gateCV[i] > 1.5f);   // Currently low: need >1.5V to trigger
+                ? (gateCV[i] >= 1.0f)
+                : (gateCV[i] > 1.5f);
             
             if (gateHigh && !pThis->prevGate) {
-                int midiNote = cvToMidiNote(pitchCV ? pitchCV[i] : 0.0f);
                 bool accent = accentCV && accentCV[i] > 2.5f;
                 int velocity = accent ? 127 : 80;
-                pThis->synth.noteOn(midiNote, velocity);
+                pThis->synth.noteOn(60, velocity);
                 pThis->cvNoteActive = true;
-                pThis->currentCVNote = midiNote;
             }
-            else if (gateHigh && pThis->prevGate && pitchCV) {
-                int newNote = cvToMidiNote(pitchCV[i]);
-                if (newNote != pThis->currentCVNote) {
-                    bool accent = accentCV && accentCV[i] > 2.5f;
-                    pThis->synth.noteOn(newNote, accent ? 127 : 80);
-                    pThis->currentCVNote = newNote;
-                }
+            
+            if (gateHigh && pitchCV) {
+                float freq = cvToFreq(pitchCV[i]);
+                pThis->synth.setOscillatorFrequency(freq);
             }
-            else if (!gateHigh && pThis->prevGate) {
-                // Use allNotesOff to ensure clean release regardless of note tracking
+            
+            if (gateHigh && accentCV) {
+                float accentLevel = (accentCV[i] - 2.5f) / 2.5f;
+                if (accentLevel < 0.0f) accentLevel = 0.0f;
+                if (accentLevel > 1.0f) accentLevel = 1.0f;
+                pThis->synth.setAccentGain(accentLevel * 0.5);
+            }
+            
+            if (!gateHigh && pThis->prevGate) {
                 pThis->synth.allNotesOff();
                 pThis->cvNoteActive = false;
             }

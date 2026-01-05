@@ -1,11 +1,15 @@
 diff --git a/Source/DSPCode/rosic_FourierTransformerRadix2.cpp b/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
-index 61a1f12..0e954f6 100644
+index 61a1f12..e230da6 100644
 --- a/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
 +++ b/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
-@@ -5,64 +5,60 @@ using namespace rosic;
- //-------------------------------------------------------------------------------------------------
- // construction/destruction:
- 
+@@ -1,311 +1,307 @@
+-#include "rosic_FourierTransformerRadix2.h"
+-#include "fft4g.c"
+-using namespace rosic;
+-
+-//-------------------------------------------------------------------------------------------------
+-// construction/destruction:
+-
 -FourierTransformerRadix2::FourierTransformerRadix2()
 -{
 -  N                   = 0;
@@ -64,6 +68,259 @@ index 61a1f12..0e954f6 100644
 -  else if( !isPowerOfTwo(newBlockSize) || newBlockSize <= 1 )
 -    DEBUG_BREAK; // this class can only deal with blocksizes >= 2 that are a power of two
 -}
+-
+-void FourierTransformerRadix2::setDirection(int newDirection)
+-{
+-  if( newDirection >= FORWARD && newDirection <= INVERSE )
+-  {
+-    // only when the new direction is actually different form the old one, we have to conjugate 
+-    // all the twiddle-factors, otherwise everything must stay as is:
+-    if( newDirection != direction )
+-    {
+-      direction = newDirection;
+-      updateNormalizationFactor();
+-    }
+-  }
+-  else
+-    DEBUG_BREAK; // passed int-parameter does not correspond to any meaningful enum-field
+-}
+-
+-void FourierTransformerRadix2::setNormalizationMode(int newNormalizationMode)
+-{
+-  if( newNormalizationMode >= NORMALIZE_ON_FORWARD_TRAFO && 
+-      newNormalizationMode <= ORTHONORMAL_TRAFO )
+-  {
+-    normalizationMode = newNormalizationMode;
+-    updateNormalizationFactor();
+-  }
+-  else
+-    DEBUG_BREAK; // passed int-parameter does not correspond to any meaningful enum-field
+-}
+-
+-void FourierTransformerRadix2::setRealSignalMode(bool willBeUsedForRealSignals)
+-{
+-  ip[0] = 0; // retriggers twiddle-factor computation
+-}
+-
+-//-------------------------------------------------------------------------------------------------
+-// signal processing:
+-
+-void FourierTransformerRadix2::transformComplexBufferInPlace(Complex *buffer)
+-{
+-  // retrieve the adresses of the real part of the first array entries in order to treat the 
+-  // Complex arrays as arrays of two successive double-numbers:
+-  double* d_buffer = &(buffer[0].re);
+-
+-  // normalize the FFT-input, if required:
+-  if( normalizationFactor != 1.0 )
+-  {
+-    for(int n=0; n<2*N; n++)
+-      d_buffer[n] *= normalizationFactor;
+-  }
+-
+-  // use Ooura's routine:
+-  int sign;
+-  if( direction == FORWARD )
+-    sign = -1;
+-  else
+-    sign = +1;
+-  cdft(2*N, sign, d_buffer, ip, w);
+-}
+-
+-void FourierTransformerRadix2::transformComplexBuffer(Complex *inBuffer, Complex *outBuffer)
+-{
+-  // retrieve the adresses of the real part of the first array entries in order to treat the 
+-  // Complex arrays as arrays of two successive double-numbers:
+-  double* d_inBuffer  = &(inBuffer[0].re);
+-  double* d_outBuffer = &(outBuffer[0].re);
+-
+-  // copy the input into the output for the in-place routine (thereby normalize, if necesarry):
+-  int n;
+-  if( normalizationFactor != 1.0 )
+-  {
+-    for(n=0; n<2*N; n++)
+-      d_outBuffer[n] = d_inBuffer[n] * normalizationFactor;
+-  }
+-  else
+-  {
+-    for(n=0; n<2*N; n++)
+-      d_outBuffer[n] = d_inBuffer[n];
+-  }
+-
+-  // use Ooura's routine:
+-  int sign;
+-  if( direction == FORWARD )
+-    sign = -1;
+-  else
+-    sign = +1;
+-  cdft(2*N, sign, d_outBuffer, ip, w);
+-}
+-
+-//-------------------------------------------------------------------------------------------------
+-// convenience functions for real signal:
+-
+-void FourierTransformerRadix2::transformRealSignal(double *inSignal, Complex *outSpectrum)
+-{
+-  setDirection(FORWARD);
+-
+-  // retrieve the adress of the real part of the first array entry of the output array in order to
+-  // treat the Complex array as array of two successive double-numbers:
+-  double* d_outBuffer = &(outSpectrum[0].re);
+-
+-  // copy the input into the output for the in-place routine (thereby normalize, if necesarry):
+-  int n;
+-  if( normalizationFactor != 1.0 )
+-  {
+-    for(n=0; n<N; n++)
+-      d_outBuffer[n] = inSignal[n] * normalizationFactor;
+-  }
+-  else
+-  {
+-    for(n=0; n<N; n++)
+-      d_outBuffer[n] = inSignal[n];
+-  }
+-
+-  // use Ooura's routine:
+-  rdft(N, 1, d_outBuffer, ip, w);
+-
+-  // for some reason, this routine returns the second half of the spectrum (the complex conjugate 
+-  // values of the desired first half), so we need to take the complex conjugates:
+-  for(n=3; n<N; n+=2) // start at n=3 (imaginary part of the first bin after DC)
+-    d_outBuffer[n] = -d_outBuffer[n];
+-}
+-
+-void FourierTransformerRadix2::transformRealSignal(double *signal, double *reAndIm)
+-{
+-  Complex* c_reAndIm = (Complex*) &(reAndIm[0]);
+-  transformRealSignal(signal, c_reAndIm);
+-}
+-
+-
+-void FourierTransformerRadix2::getRealSignalMagnitudesAndPhases(double *signal, 
+-                                                                double *magnitudes, double *phases)
+-{
+-  transformRealSignal(signal, tmpBuffer);
+-
+-  // store the two purely real transform values at DC and Nyquist-frequency in the first fields of 
+-  // the magnitude- and phase- arrays respectively:
+-  magnitudes[0] = tmpBuffer[0].re;
+-  phases[0]     = tmpBuffer[0].im;
+-
+-  // fill the rest of the array with the magnitudes and phases of the regular bins:
+-  double* dBuffer = &(tmpBuffer[0].re);
+-  double  re, im;
+-  int     k;
+-  for(k=1; k<N/2; k++)
+-  {
+-    re            = dBuffer[2*k];
+-    im            = dBuffer[2*k+1];
+-    magnitudes[k] = sqrt(re*re + im*im);
+-    if( re == 0.0 && im == 0.0 )
+-      phases[k] = 0.0;
+-    else
+-      phases[k] = atan2(im, re);
+-  }
+-}
+-
+-void FourierTransformerRadix2::getRealSignalMagnitudes(double *signal, double *magnitudes)
+-{
+-  transformRealSignal(signal, tmpBuffer);
+-  magnitudes[0] = tmpBuffer[0].re;
+-
+-  double* dBuffer = &(tmpBuffer[0].re);
+-  double  re, im;
+-  int     k;
+-  for(k=1; k<N/2; k++)
+-  {
+-    re            = dBuffer[2*k];
+-    im            = dBuffer[2*k+1];
+-    magnitudes[k] = sqrt(re*re + im*im);
+-  }
+-}
+-
+-void FourierTransformerRadix2::transformSymmetricSpectrum(Complex *inSpectrum, double *outSignal)
+-{
+-  setDirection(INVERSE);
+-
+-  // retrieve the adress of the real part of the first array entry of the output array in order to
+-  // treat the Complex array as array of two successive double-numbers:
+-  double* d_inBuffer = &(inSpectrum[0].re);
+-
+-  // copy the input into the output for the in-place routine (thereby normalize, if necesarry):
+-  int n;
+-  if( normalizationFactor != 1.0 )
+-  {
+-    for(n=0; n<N; n++)
+-      outSignal[n] = 2.0 * d_inBuffer[n] * normalizationFactor;
+-  }
+-  else
+-  {
+-    for(n=0; n<N; n++)
+-      outSignal[n] = 2.0 * d_inBuffer[n];
+-  }
+-
+-  // for some reason, the subsequent routine expects the second half of the spectrum (the complex 
+-  // conjugate values of the first half), so we need to take the complex conjugates:
+-  for(n=3; n<N; n+=2) // start at n=3 (imaginary part of the first bin after DC)
+-    outSignal[n] = -outSignal[n];
+-
+-  // use Ooura's routine:
+-  rdft(N, -1, outSignal, ip, w);
+-}
+-
+-void FourierTransformerRadix2::transformSymmetricSpectrum(double *reAndIm, double *signal)
+-{
+-  Complex* c_reAndIm = (Complex*) &(reAndIm[0]);
+-  transformSymmetricSpectrum(c_reAndIm, signal);
+-}
+-
+-void FourierTransformerRadix2::getRealSignalFromMagnitudesAndPhases(double *magnitudes, 
+-                                                                    double *phases, 
+-                                                                    double *signal)
+-{
+-  tmpBuffer[0].re = magnitudes[0];
+-  tmpBuffer[0].im = phases[0];
+-
+-  int k;
+-  double* dBuffer = &(tmpBuffer[0].re);
+-  double  s, c;
+-  for(k=1; k<N/2; k++)
+-  {
+-    sinCos(phases[k], &s, &c);
+-    dBuffer[2*k]   = magnitudes[k] * c;
+-    dBuffer[2*k+1] = magnitudes[k] * s;
+-  }
+-
+-  transformSymmetricSpectrum(tmpBuffer, signal);
+-}
+-
+-//-------------------------------------------------------------------------------------------------
+-// pre-calculations:
+-
+-void FourierTransformerRadix2::updateNormalizationFactor()
+-{
+-  if( (normalizationMode == NORMALIZE_ON_FORWARD_TRAFO && direction == FORWARD) ||
+-      (normalizationMode == NORMALIZE_ON_INVERSE_TRAFO && direction == INVERSE)    )
+-  {
+-    normalizationFactor = 1.0 / (double) N;
+-  }
+-  else if( normalizationMode == ORTHONORMAL_TRAFO )
+-  {
+-    normalizationFactor = 1.0 / sqrt((double) N);
+-  }
+-  else
+-    normalizationFactor = 1.0;
+-}
+-
+-
+-
++#include "rosic_FourierTransformerRadix2.h"
++#include "fft4g.c"
++using namespace rosic;
++
++//-------------------------------------------------------------------------------------------------
++// construction/destruction:
++
 +FourierTransformerRadix2::FourierTransformerRadix2()
 +{
 +  N                   = 0;
@@ -118,17 +375,395 @@ index 61a1f12..0e954f6 100644
 +  else if( !isPowerOfTwo(newBlockSize) || newBlockSize <= 1 )
 +    DEBUG_BREAK;
 +}
- 
- void FourierTransformerRadix2::setDirection(int newDirection)
- {
++
++void FourierTransformerRadix2::setDirection(int newDirection)
++{
++  if( newDirection >= FORWARD && newDirection <= INVERSE )
++  {
++    // only when the new direction is actually different form the old one, we have to conjugate 
++    // all the twiddle-factors, otherwise everything must stay as is:
++    if( newDirection != direction )
++    {
++      direction = newDirection;
++      updateNormalizationFactor();
++    }
++  }
++  else
++    DEBUG_BREAK; // passed int-parameter does not correspond to any meaningful enum-field
++}
++
++void FourierTransformerRadix2::setNormalizationMode(int newNormalizationMode)
++{
++  if( newNormalizationMode >= NORMALIZE_ON_FORWARD_TRAFO && 
++      newNormalizationMode <= ORTHONORMAL_TRAFO )
++  {
++    normalizationMode = newNormalizationMode;
++    updateNormalizationFactor();
++  }
++  else
++    DEBUG_BREAK; // passed int-parameter does not correspond to any meaningful enum-field
++}
++
++void FourierTransformerRadix2::setRealSignalMode(bool willBeUsedForRealSignals)
++{
++  ip[0] = 0; // retriggers twiddle-factor computation
++}
++
++//-------------------------------------------------------------------------------------------------
++// signal processing:
++
++void FourierTransformerRadix2::transformComplexBufferInPlace(Complex *buffer)
++{
++  // retrieve the adresses of the real part of the first array entries in order to treat the 
++  // Complex arrays as arrays of two successive double-numbers:
++  double* d_buffer = &(buffer[0].re);
++
++  // normalize the FFT-input, if required:
++  if( normalizationFactor != 1.0 )
++  {
++    for(int n=0; n<2*N; n++)
++      d_buffer[n] *= normalizationFactor;
++  }
++
++  // use Ooura's routine:
++  int sign;
++  if( direction == FORWARD )
++    sign = -1;
++  else
++    sign = +1;
++  cdft(2*N, sign, d_buffer, ip, w);
++}
++
++void FourierTransformerRadix2::transformComplexBuffer(Complex *inBuffer, Complex *outBuffer)
++{
++  // retrieve the adresses of the real part of the first array entries in order to treat the 
++  // Complex arrays as arrays of two successive double-numbers:
++  double* d_inBuffer  = &(inBuffer[0].re);
++  double* d_outBuffer = &(outBuffer[0].re);
++
++  // copy the input into the output for the in-place routine (thereby normalize, if necesarry):
++  int n;
++  if( normalizationFactor != 1.0 )
++  {
++    for(n=0; n<2*N; n++)
++      d_outBuffer[n] = d_inBuffer[n] * normalizationFactor;
++  }
++  else
++  {
++    for(n=0; n<2*N; n++)
++      d_outBuffer[n] = d_inBuffer[n];
++  }
++
++  // use Ooura's routine:
++  int sign;
++  if( direction == FORWARD )
++    sign = -1;
++  else
++    sign = +1;
++  cdft(2*N, sign, d_outBuffer, ip, w);
++}
++
++//-------------------------------------------------------------------------------------------------
++// convenience functions for real signal:
++
++void FourierTransformerRadix2::transformRealSignal(double *inSignal, Complex *outSpectrum)
++{
++  setDirection(FORWARD);
++
++  // retrieve the adress of the real part of the first array entry of the output array in order to
++  // treat the Complex array as array of two successive double-numbers:
++  double* d_outBuffer = &(outSpectrum[0].re);
++
++  // copy the input into the output for the in-place routine (thereby normalize, if necesarry):
++  int n;
++  if( normalizationFactor != 1.0 )
++  {
++    for(n=0; n<N; n++)
++      d_outBuffer[n] = inSignal[n] * normalizationFactor;
++  }
++  else
++  {
++    for(n=0; n<N; n++)
++      d_outBuffer[n] = inSignal[n];
++  }
++
++  // use Ooura's routine:
++  rdft(N, 1, d_outBuffer, ip, w);
++
++  // for some reason, this routine returns the second half of the spectrum (the complex conjugate 
++  // values of the desired first half), so we need to take the complex conjugates:
++  for(n=3; n<N; n+=2) // start at n=3 (imaginary part of the first bin after DC)
++    d_outBuffer[n] = -d_outBuffer[n];
++}
++
++void FourierTransformerRadix2::transformRealSignal(double *signal, double *reAndIm)
++{
++  Complex* c_reAndIm = (Complex*) &(reAndIm[0]);
++  transformRealSignal(signal, c_reAndIm);
++}
++
++
++void FourierTransformerRadix2::getRealSignalMagnitudesAndPhases(double *signal, 
++                                                                double *magnitudes, double *phases)
++{
++  transformRealSignal(signal, tmpBuffer);
++
++  // store the two purely real transform values at DC and Nyquist-frequency in the first fields of 
++  // the magnitude- and phase- arrays respectively:
++  magnitudes[0] = tmpBuffer[0].re;
++  phases[0]     = tmpBuffer[0].im;
++
++  // fill the rest of the array with the magnitudes and phases of the regular bins:
++  double* dBuffer = &(tmpBuffer[0].re);
++  double  re, im;
++  int     k;
++  for(k=1; k<N/2; k++)
++  {
++    re            = dBuffer[2*k];
++    im            = dBuffer[2*k+1];
++    magnitudes[k] = sqrt(re*re + im*im);
++    if( re == 0.0 && im == 0.0 )
++      phases[k] = 0.0;
++    else
++      phases[k] = atan2(im, re);
++  }
++}
++
++void FourierTransformerRadix2::getRealSignalMagnitudes(double *signal, double *magnitudes)
++{
++  transformRealSignal(signal, tmpBuffer);
++  magnitudes[0] = tmpBuffer[0].re;
++
++  double* dBuffer = &(tmpBuffer[0].re);
++  double  re, im;
++  int     k;
++  for(k=1; k<N/2; k++)
++  {
++    re            = dBuffer[2*k];
++    im            = dBuffer[2*k+1];
++    magnitudes[k] = sqrt(re*re + im*im);
++  }
++}
++
++void FourierTransformerRadix2::transformSymmetricSpectrum(Complex *inSpectrum, double *outSignal)
++{
++  setDirection(INVERSE);
++
++  // retrieve the adress of the real part of the first array entry of the output array in order to
++  // treat the Complex array as array of two successive double-numbers:
++  double* d_inBuffer = &(inSpectrum[0].re);
++
++  // copy the input into the output for the in-place routine (thereby normalize, if necesarry):
++  int n;
++  if( normalizationFactor != 1.0 )
++  {
++    for(n=0; n<N; n++)
++      outSignal[n] = 2.0 * d_inBuffer[n] * normalizationFactor;
++  }
++  else
++  {
++    for(n=0; n<N; n++)
++      outSignal[n] = 2.0 * d_inBuffer[n];
++  }
++
++  // for some reason, the subsequent routine expects the second half of the spectrum (the complex 
++  // conjugate values of the first half), so we need to take the complex conjugates:
++  for(n=3; n<N; n+=2) // start at n=3 (imaginary part of the first bin after DC)
++    outSignal[n] = -outSignal[n];
++
++  // use Ooura's routine:
++  rdft(N, -1, outSignal, ip, w);
++}
++
++void FourierTransformerRadix2::transformSymmetricSpectrum(double *reAndIm, double *signal)
++{
++  Complex* c_reAndIm = (Complex*) &(reAndIm[0]);
++  transformSymmetricSpectrum(c_reAndIm, signal);
++}
++
++void FourierTransformerRadix2::getRealSignalFromMagnitudesAndPhases(double *magnitudes, 
++                                                                    double *phases, 
++                                                                    double *signal)
++{
++  tmpBuffer[0].re = magnitudes[0];
++  tmpBuffer[0].im = phases[0];
++
++  int k;
++  double* dBuffer = &(tmpBuffer[0].re);
++  double  s, c;
++  for(k=1; k<N/2; k++)
++  {
++    sinCos(phases[k], &s, &c);
++    dBuffer[2*k]   = magnitudes[k] * c;
++    dBuffer[2*k+1] = magnitudes[k] * s;
++  }
++
++  transformSymmetricSpectrum(tmpBuffer, signal);
++}
++
++//-------------------------------------------------------------------------------------------------
++// pre-calculations:
++
++void FourierTransformerRadix2::updateNormalizationFactor()
++{
++  if( (normalizationMode == NORMALIZE_ON_FORWARD_TRAFO && direction == FORWARD) ||
++      (normalizationMode == NORMALIZE_ON_INVERSE_TRAFO && direction == INVERSE)    )
++  {
++    normalizationFactor = 1.0 / (double) N;
++  }
++  else if( normalizationMode == ORTHONORMAL_TRAFO )
++  {
++    normalizationFactor = 1.0 / sqrt((double) N);
++  }
++  else
++    normalizationFactor = 1.0;
++}
++
++
++
 diff --git a/Source/DSPCode/rosic_FourierTransformerRadix2.h b/Source/DSPCode/rosic_FourierTransformerRadix2.h
-index ce0f536..a3e93f5 100644
+index ce0f536..fde7ff8 100644
 --- a/Source/DSPCode/rosic_FourierTransformerRadix2.h
 +++ b/Source/DSPCode/rosic_FourierTransformerRadix2.h
-@@ -136,26 +136,23 @@ namespace rosic
- 
-     //=============================================================================================
- 
+@@ -1,162 +1,159 @@
+-#ifndef rosic_FourierTransformerRadix2_h
+-#define rosic_FourierTransformerRadix2_h
+-
+-// standard includes:
+-#include <stdio.h>
+-
+-// rosic-indcludes:
+-#include "rosic_Complex.h"
+-#include "rosic_RealFunctions.h"
+-
+-namespace rosic
+-{
+-
+-  /**
+-
+-  This class performs a fast Fourier Transform on a block of complex numbers (which are of class
+-  "Complex"). The length of the block has to be a power of 2. It uses the FFT library by Takuya Ooura
+-  which seems to be rather efficient. It handles the conversion between doubles and Complex numbers
+-  by means of some hacky pointer trickery which relies on the fact that an object of class Complex 
+-  can be interpreted as two doubles stored in subsequent memory locations. This is true for the 
+-  compiler in MSVC 2005 but may or may not be true for other compilers. In case of problems, try the 
+-  class FourierTransfromerRadix2Clean which goes without such nasty hacks but is vastly inferior 
+-  efficiency-wise.
+-
+-  */
+-
+-  class FourierTransformerRadix2  
+-  {
+-
+-  public:
+-
+-    /** The direction of the transform. */
+-    enum directions
+-    {
+-      FORWARD,
+-      INVERSE
+-    };
+-
+-    /** These are the possible normalization modes. */
+-    enum normalizationModes
+-    {
+-      NORMALIZE_ON_FORWARD_TRAFO, // divide by blockSize on forward FFT
+-      NORMALIZE_ON_INVERSE_TRAFO, // divide by blockSize on inverse FFT (default)
+-      ORTHONORMAL_TRAFO           // divide by sqrt(blockSize) on both transforms
+-    };
+-
+-    //---------------------------------------------------------------------------------------------
+-    // construction/destruction:
+-
+-    /** Constructor. */
+-    FourierTransformerRadix2();  
+-
+-    /** Destructor. */
+-    ~FourierTransformerRadix2();
+-
+-    //---------------------------------------------------------------------------------------------
+-    // parameter settings:
+-
+-    /** FFT-size, has to be a power of 2 and >= 2. */
+-    void setBlockSize(int newBlockSize);     
+-
+-    /** Sets the direction of the transform (@see: directions). This will affect the sign of the 
+-    exponent (or equivalently: theimaginary part) in the twiddling factors and the normalization 
+-    constant. */
+-    void setDirection(int newDirection);
+-
+-    /** When you switch bewteen usage of this object for real or complex signals, you will need to 
+-    call this switch-function in between which just triggers a re-computation of the twiddle 
+-    factors (which must be different for the two cases). */
+-    void setRealSignalMode(bool willBeUsedForRealSignals);
+-
+-    /** Sets the mode for normalization of the output (@see: normalizationModes). */
+-    void setNormalizationMode(int newNormalizationMode);
+-
+-    //---------------------------------------------------------------------------------------------
+-    // complex Fourier transforms:
+-
+-    /** Transforms a buffer of complex numbers into its (forward or inverse) fourier transform. 
+-    The inBuffer will remain intact. Both, inBuffer and outBuffer must be of the size which was 
+-    specified when setting up the blockSize with setBlockSize(). */
+-    void transformComplexBuffer(Complex *inBuffer, Complex *outBuffer);   
+-
+-    /** Does the same thing as transformComplexBuffer but performes in-place calculation 
+-    (overwrites the input buffer). */
+-    void transformComplexBufferInPlace(Complex *buffer);         
+-
+-    //---------------------------------------------------------------------------------------------
+-    // some convenience functions for dealing with real signals:
+-
+-    /** Transforms a real signal into its corresponding (conjugate symmetric) complex spectrum 
+-    using an algorithm which exploits the symmetries for more efficiency. When the input array is
+-    an array of doubles of length N, the output array will be an array of complex numbers (class 
+-    Complex) of length N/2 with the (purely real) transform value of bin N/2 stored in the 
+-    imaginary part of the first array entry (outSpectrum[0].im = real(N/2)). */
+-    void transformRealSignal(double *inSignal, Complex *outSpectrum);  
+-
+-    /** Calculates real and imaginary part of the spectrum as interleaved double buffer: 
+-    buf[2]=re[1], buf[3]=im[1], buf[4]=re[2], buf[5]=im[2],... in general: buf[2*k]=re[k], 
+-    buf[2k+1]=im[k], k=1,..,(N/2)-1 where N is the FFT-size. The first two elements of the buffer 
+-    have a special meaning: buf[0] is the (purely real) DC and buf[1] is the (purely real) 
+-    coefficient for the Nyquist frequency. The other fields contain the real and imaginary parts of
+-    the positive frequencies only (interleaved) because the negative frequencies are redundant 
+-    (they are conjugate symmetric). */
+-    void transformRealSignal(double *signal, double *reAndIm);  
+-
+-    /** Calculates spectral magnitudes and phases from a signal, where *signal should be of
+-    length N, where N is the block-size as chosen with setBlockSize() *magnitudes and *phases 
+-    should be of length N/2. */
+-    void getRealSignalMagnitudesAndPhases(double *signal, double *magnitudes, double *phases);
+-
+-    /** Calculates the magnitudes only from a signal (useful for analyzer-stuff). */
+-    void getRealSignalMagnitudes(double *signal, double *magnitudes);
+-
+-    /** Transforms a complex conjugate symmetric spectrum (i.e. a spectrum of a real signal) into
+-    the corresponding real signal. */
+-    void transformSymmetricSpectrum(Complex *inSpectrum, double *outSignal);
+-
+-    /** Calculates a time signal from and interleaved buffer containing the real and imaginary 
+-    parts of the positive frequencies (the negative frequencies are assumed to be conjugate 
+-    symmetric). */
+-    void transformSymmetricSpectrum(double *reAndIm, double *signal);
+-
+-    /** Calculates a real time signal from its magnitudes and phases, *magnitudes and *phases
+-    should be of length N/2, *signal is of length N where N is the block-size as chosen with 
+-    setBlockSize(). */
+-    void getRealSignalFromMagnitudesAndPhases(double *magnitudes, double *phases, double *signal);
+-
+-    //---------------------------------------------------------------------------------------------
+-    // static functions
+-
+-    /** Returns the physical frequency in Hz that corresponds to the given 'binIndex' for a given
+-    'fftSize' and 'sampleRate'. */
+-    static double binIndexToFrequency(int binIndex, int fftSize, double sampleRate) 
+-    { return binIndex*sampleRate/fftSize; }
+-
+-
+-    //=============================================================================================
+-
 -  protected:
 -
 -    /** Updates the normalizationFactor member variable acording to a new blockSize, direction or
@@ -149,6 +784,148 @@ index ce0f536..a3e93f5 100644
 -    Complex* tmpBuffer;
 -
 -  };
+-
+-} // end namespace rosic
+-
+-#endif // rosic_FourierTransformerRadix2_h
++#ifndef rosic_FourierTransformerRadix2_h
++#define rosic_FourierTransformerRadix2_h
++
++// standard includes:
++#include <stdio.h>
++
++// rosic-indcludes:
++#include "rosic_Complex.h"
++#include "rosic_RealFunctions.h"
++
++namespace rosic
++{
++
++  /**
++
++  This class performs a fast Fourier Transform on a block of complex numbers (which are of class
++  "Complex"). The length of the block has to be a power of 2. It uses the FFT library by Takuya Ooura
++  which seems to be rather efficient. It handles the conversion between doubles and Complex numbers
++  by means of some hacky pointer trickery which relies on the fact that an object of class Complex 
++  can be interpreted as two doubles stored in subsequent memory locations. This is true for the 
++  compiler in MSVC 2005 but may or may not be true for other compilers. In case of problems, try the 
++  class FourierTransfromerRadix2Clean which goes without such nasty hacks but is vastly inferior 
++  efficiency-wise.
++
++  */
++
++  class FourierTransformerRadix2  
++  {
++
++  public:
++
++    /** The direction of the transform. */
++    enum directions
++    {
++      FORWARD,
++      INVERSE
++    };
++
++    /** These are the possible normalization modes. */
++    enum normalizationModes
++    {
++      NORMALIZE_ON_FORWARD_TRAFO, // divide by blockSize on forward FFT
++      NORMALIZE_ON_INVERSE_TRAFO, // divide by blockSize on inverse FFT (default)
++      ORTHONORMAL_TRAFO           // divide by sqrt(blockSize) on both transforms
++    };
++
++    //---------------------------------------------------------------------------------------------
++    // construction/destruction:
++
++    /** Constructor. */
++    FourierTransformerRadix2();  
++
++    /** Destructor. */
++    ~FourierTransformerRadix2();
++
++    //---------------------------------------------------------------------------------------------
++    // parameter settings:
++
++    /** FFT-size, has to be a power of 2 and >= 2. */
++    void setBlockSize(int newBlockSize);     
++
++    /** Sets the direction of the transform (@see: directions). This will affect the sign of the 
++    exponent (or equivalently: theimaginary part) in the twiddling factors and the normalization 
++    constant. */
++    void setDirection(int newDirection);
++
++    /** When you switch bewteen usage of this object for real or complex signals, you will need to 
++    call this switch-function in between which just triggers a re-computation of the twiddle 
++    factors (which must be different for the two cases). */
++    void setRealSignalMode(bool willBeUsedForRealSignals);
++
++    /** Sets the mode for normalization of the output (@see: normalizationModes). */
++    void setNormalizationMode(int newNormalizationMode);
++
++    //---------------------------------------------------------------------------------------------
++    // complex Fourier transforms:
++
++    /** Transforms a buffer of complex numbers into its (forward or inverse) fourier transform. 
++    The inBuffer will remain intact. Both, inBuffer and outBuffer must be of the size which was 
++    specified when setting up the blockSize with setBlockSize(). */
++    void transformComplexBuffer(Complex *inBuffer, Complex *outBuffer);   
++
++    /** Does the same thing as transformComplexBuffer but performes in-place calculation 
++    (overwrites the input buffer). */
++    void transformComplexBufferInPlace(Complex *buffer);         
++
++    //---------------------------------------------------------------------------------------------
++    // some convenience functions for dealing with real signals:
++
++    /** Transforms a real signal into its corresponding (conjugate symmetric) complex spectrum 
++    using an algorithm which exploits the symmetries for more efficiency. When the input array is
++    an array of doubles of length N, the output array will be an array of complex numbers (class 
++    Complex) of length N/2 with the (purely real) transform value of bin N/2 stored in the 
++    imaginary part of the first array entry (outSpectrum[0].im = real(N/2)). */
++    void transformRealSignal(double *inSignal, Complex *outSpectrum);  
++
++    /** Calculates real and imaginary part of the spectrum as interleaved double buffer: 
++    buf[2]=re[1], buf[3]=im[1], buf[4]=re[2], buf[5]=im[2],... in general: buf[2*k]=re[k], 
++    buf[2k+1]=im[k], k=1,..,(N/2)-1 where N is the FFT-size. The first two elements of the buffer 
++    have a special meaning: buf[0] is the (purely real) DC and buf[1] is the (purely real) 
++    coefficient for the Nyquist frequency. The other fields contain the real and imaginary parts of
++    the positive frequencies only (interleaved) because the negative frequencies are redundant 
++    (they are conjugate symmetric). */
++    void transformRealSignal(double *signal, double *reAndIm);  
++
++    /** Calculates spectral magnitudes and phases from a signal, where *signal should be of
++    length N, where N is the block-size as chosen with setBlockSize() *magnitudes and *phases 
++    should be of length N/2. */
++    void getRealSignalMagnitudesAndPhases(double *signal, double *magnitudes, double *phases);
++
++    /** Calculates the magnitudes only from a signal (useful for analyzer-stuff). */
++    void getRealSignalMagnitudes(double *signal, double *magnitudes);
++
++    /** Transforms a complex conjugate symmetric spectrum (i.e. a spectrum of a real signal) into
++    the corresponding real signal. */
++    void transformSymmetricSpectrum(Complex *inSpectrum, double *outSignal);
++
++    /** Calculates a time signal from and interleaved buffer containing the real and imaginary 
++    parts of the positive frequencies (the negative frequencies are assumed to be conjugate 
++    symmetric). */
++    void transformSymmetricSpectrum(double *reAndIm, double *signal);
++
++    /** Calculates a real time signal from its magnitudes and phases, *magnitudes and *phases
++    should be of length N/2, *signal is of length N where N is the block-size as chosen with 
++    setBlockSize(). */
++    void getRealSignalFromMagnitudesAndPhases(double *magnitudes, double *phases, double *signal);
++
++    //---------------------------------------------------------------------------------------------
++    // static functions
++
++    /** Returns the physical frequency in Hz that corresponds to the given 'binIndex' for a given
++    'fftSize' and 'sampleRate'. */
++    static double binIndexToFrequency(int binIndex, int fftSize, double sampleRate) 
++    { return binIndex*sampleRate/fftSize; }
++
++
++    //=============================================================================================
++
 +  protected:
 +
 +    /** Updates the normalizationFactor member variable acording to a new blockSize, direction or
@@ -166,17 +943,18 @@ index ce0f536..a3e93f5 100644
 +    Complex *tmpBuffer;
 +
 +  };
- 
- } // end namespace rosic
- 
++
++} // end namespace rosic
++
++#endif // rosic_FourierTransformerRadix2_h
 diff --git a/Source/DSPCode/rosic_MipMappedWaveTable.cpp b/Source/DSPCode/rosic_MipMappedWaveTable.cpp
-index dcaeda6..da61d50 100644
+index dcaeda6..e898c4f 100644
 --- a/Source/DSPCode/rosic_MipMappedWaveTable.cpp
 +++ b/Source/DSPCode/rosic_MipMappedWaveTable.cpp
-@@ -1,25 +1,21 @@
- #include "rosic_MipMappedWaveTable.h"
- using namespace rosic;
- 
+@@ -1,340 +1,331 @@
+-#include "rosic_MipMappedWaveTable.h"
+-using namespace rosic;
+-
 -MipMappedWaveTable::MipMappedWaveTable()
 -{
 -  // init member variables:
@@ -196,54 +974,120 @@ index dcaeda6..da61d50 100644
 -  initPrototypeTable();
 -  initTableSet();
 -}
-+MipMappedWaveTable::MipMappedWaveTable()
-+{
-+  sampleRate = 44100.0;
-+  waveform   = 0;
-+  symmetry   = 0.5;
-+
-+  tanhShaperFactor = dB2amp(36.9);
-+  tanhShaperOffset = 4.37;
-+  squarePhaseShift = 180.0;
-+
-+  fourierTransformer.setBlockSize(tableLength);
-+
-+  initPrototypeTable();
-+  initTableSet();
-+}
- 
- MipMappedWaveTable::~MipMappedWaveTable()
- {
-@@ -64,11 +60,11 @@ void MipMappedWaveTable::setSymmetry(double newSymmetry)
- //-------------------------------------------------------------------------------------------------
- // internal functions:
- 
+-
+-MipMappedWaveTable::~MipMappedWaveTable()
+-{
+-
+-}
+-
+-//-------------------------------------------------------------------------------------------------
+-// parameter settings:
+-
+-void MipMappedWaveTable::setWaveform(double* newWaveForm, int lengthInSamples)
+-{
+-  int i;
+-  if( lengthInSamples == tableLength )
+-  {
+-    // just copy the values into the internal buffer, when the length of the passed table and the
+-    // internal table match:
+-    for( i=0; i<tableLength; i++ )
+-      prototypeTable[i] = newWaveForm[i];
+-  }
+-  else
+-  {
+-    // implement periodic sinc-interpolation here...
+-  }
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::setWaveform(int newWaveform)
+-{
+-  if( (newWaveform >= 0) && (newWaveform != waveform) )
+-  {
+-    waveform = newWaveform;
+-    renderWaveform();
+-  }
+-}
+-
+-void MipMappedWaveTable::setSymmetry(double newSymmetry)
+-{
+-  symmetry = newSymmetry;
+-  renderWaveform();
+-}
+-
+-//-------------------------------------------------------------------------------------------------
+-// internal functions:
+-
 -void MipMappedWaveTable::initPrototypeTable()
 -{
 -  for(int i=0; i<(tableLength+4); i++)
 -    prototypeTable[i] = 0.0;
 -}
-+void MipMappedWaveTable::initPrototypeTable()
-+{
-+  for(int i=0; i<tableLength; i++)
-+    prototypeTable[i] = 0.0f;
-+}
- 
- void MipMappedWaveTable::initTableSet()
- {
-@@ -110,7 +106,7 @@ void MipMappedWaveTable::normalize()
- void MipMappedWaveTable::reverseTime()
- {
-   int    i;
+-
+-void MipMappedWaveTable::initTableSet()
+-{
+-  int t, i; // indices fo table and position
+-  for(t=0; t<numTables; t++)
+-    for(i=0; i<tableLength+4; i++)
+-      tableSet[t][i] = 0.0;
+-}
+-
+-void MipMappedWaveTable::removeDC()
+-{
+-  // calculate DC-offset (= average value of the table):
+-  double dcOffset = 0.0;
+-  int i;
+-  for(i=0; i<tableLength; i++)
+-    dcOffset += prototypeTable[i];
+-  dcOffset = dcOffset / tableLength;
+-
+-  // remove DC-Offset:
+-  for(i=0; i<tableLength; i++)
+-    prototypeTable[i] -= dcOffset;
+-}
+-
+-void MipMappedWaveTable::normalize()
+-{
+-  // find maximum:
+-  double max = 0.0;
+-  int    i;
+-  for(i=0; i<tableLength; i++)
+-    if( fabs(prototypeTable[i]) > max)
+-      max = fabs(prototypeTable[i]);
+-
+-  // normalize to amplitude 1.0:
+-  double scale = 1.0/max;
+-  for(i=0; i<tableLength; i++)
+-    prototypeTable[i] *= scale;
+-}
+-
+-void MipMappedWaveTable::reverseTime()
+-{
+-  int    i;
 -  double tmpTable[tableLength+4];
-+  float tmpTable[tableLength+4];
- 
-   for(i=0; i<tableLength; i++)
-     tmpTable[i] = prototypeTable[tableLength-i-1];
-@@ -134,59 +130,54 @@ void MipMappedWaveTable::renderWaveform()
-   }
- }
- 
+-
+-  for(i=0; i<tableLength; i++)
+-    tmpTable[i] = prototypeTable[tableLength-i-1];
+-
+-  for(i=0; i<tableLength; i++)
+-    prototypeTable[i] = tmpTable[i];
+-}
+-
+-void MipMappedWaveTable::renderWaveform()
+-{
+-  switch( waveform )
+-  {
+-  case   SINE:      fillWithSine();        break;
+-  case   TRIANGLE:  fillWithTriangle();    break;
+-  case   SQUARE:    fillWithSquare();      break;
+-  case   SAW:       fillWithSaw();         break;
+-  case   SQUARE303: fillWithSquare303();   break;
+-  case   SAW303:    fillWithSaw303();      break;
+-
+-  default :  fillWithSine();
+-  }
+-}
+-
 -void MipMappedWaveTable::generateMipMap()
 -{
 -  static double spectrum[tableLength];
@@ -297,6 +1141,289 @@ index dcaeda6..da61d50 100644
 -    tableSet[t][tableLength+3] = tableSet[t][3];
 -  }
 -}
+-
+-//-------------------------------------------------------------------------------------------------
+-// fill the prototype-table with various standard waveforms:
+-
+-void MipMappedWaveTable::fillWithSine()
+-{
+-  for (long i=0; i<tableLength; i++)
+-    prototypeTable[i] = sin( (2.0*PI*i) / (double) (tableLength) );
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::fillWithTriangle()
+-{
+-  int i;
+-  for (i=0; i<(tableLength/4); i++)
+-    prototypeTable[i] = (double)(4*i) / (double)(tableLength);
+-
+-  for (i=(tableLength/4); i<(3*tableLength/4); i++)
+-    prototypeTable[i] = 2.0 - ((double)(4*i) / (double)(tableLength));
+-
+-  for (i=(3*tableLength/4); i<(tableLength); i++)
+-    prototypeTable[i] = -4.0+ ((double)(4*i) / (double)(tableLength));
+-
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::fillWithSquare()
+-{
+-  int    N  = tableLength;
+-  double k  = symmetry;
+-  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
+-  for(int n=0; n<N1; n++)
+-    prototypeTable[n] = +1.0;
+-  for(int n=N1; n<N; n++)
+-    prototypeTable[n] = -1.0;
+-
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::fillWithSaw()
+-{
+-  int    N  = tableLength;
+-  double k  = symmetry;
+-  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
+-  int    N2 = N-N1;
+-  double s1 = 1.0 / (N1-1);
+-  double s2 = 1.0 / N2;
+-  for(int n=0; n<N1; n++)
+-    prototypeTable[n] = s1*n;
+-  for(int n=N1; n<N; n++)
+-    prototypeTable[n] = -1.0 + s2*(n-N1);
+-
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::fillWithSquare303()
+-{
+-  // generate the saw-wave:
+-  int    N  = tableLength;
+-  double k  = 0.5;
+-  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
+-  int    N2 = N-N1;
+-  double s1 = 1.0 / (N1-1);
+-  double s2 = 1.0 / N2;
+-  for(int n=0; n<N1; n++)
+-    prototypeTable[n] = s1*n;
+-  for(int n=N1; n<N; n++)
+-    prototypeTable[n] = -1.0 + s2*(n-N1);
+-
+-  // switch polarity and apply tanh-shaping with dc-offset:
+-  for(int n=0; n<N; n++)
+-    prototypeTable[n] = -tanh(tanhShaperFactor*prototypeTable[n] + tanhShaperOffset);
+-
+-  // do a circular shift to phase-align with the saw-wave, when both waveforms are mixed:
+-  int nShift = roundToInt(N*squarePhaseShift/360.0);
+-  circularShift(prototypeTable, N, nShift);
+-
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::fillWithSaw303()
+-{
+-  // generate the saw-wave:
+-  int    N  = tableLength;
+-  double k  = 0.5;
+-  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
+-  int    N2 = N-N1;
+-  double s1 = 1.0 / (N1-1);
+-  double s2 = 1.0 / N2;
+-  for(int n=0; n<N1; n++)
+-    prototypeTable[n] = s1*n;
+-  for(int n=N1; n<N; n++)
+-    prototypeTable[n] = -1.0 + s2*(n-N1);
+-
+-  // switch polarity:
+-  //for(int n=0; n<N; n++)
+-  //  prototypeTable[n] = -prototypeTable[n];
+-
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::fillWithPeak()
+-{
+-  int i;
+-  for (i=0; i<(tableLength/2); i++)
+-    prototypeTable[i] = 1 - (double)(2*i) / (double)(tableLength);
+-
+-  for (i=(tableLength/2); i<(tableLength); i++)
+-    prototypeTable[i] = 0.0;
+-
+-  removeDC();
+-  normalize();
+-
+-  generateMipMap();
+-}
+-
+-void MipMappedWaveTable::fillWithMoogSaw()
+-{
+-  // the sawUp part:
+-  int i;
+-  for (i=0; i<(tableLength/2); i++)
+-    prototypeTable[i] = (double)(2*i) / (double)(tableLength);
+-
+-  for (i=(tableLength/2); i<(tableLength); i++)
+-    prototypeTable[i] = (double)(2*i) / (double)(tableLength) - 2.0;
+-
+-  // the triangle part:
+-  for (i=0; i<(tableLength/2); i++)
+-    prototypeTable[i] += 1 - (double)(4*i) / (double)(tableLength);
+-
+-  for (i=(tableLength/2); i<tableLength; i++)
+-    prototypeTable[i] += -1 + (double)(4*i) / (double)(tableLength);
+-
+-  removeDC();
+-  normalize();
+-
+-  generateMipMap();
+-}
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
++#include "rosic_MipMappedWaveTable.h"
++using namespace rosic;
++
++MipMappedWaveTable::MipMappedWaveTable()
++{
++  sampleRate = 44100.0;
++  waveform   = 0;
++  symmetry   = 0.5;
++
++  tanhShaperFactor = dB2amp(36.9);
++  tanhShaperOffset = 4.37;
++  squarePhaseShift = 180.0;
++
++  fourierTransformer.setBlockSize(tableLength);
++
++  initPrototypeTable();
++  initTableSet();
++}
++
++MipMappedWaveTable::~MipMappedWaveTable()
++{
++
++}
++
++//-------------------------------------------------------------------------------------------------
++// parameter settings:
++
++void MipMappedWaveTable::setWaveform(double* newWaveForm, int lengthInSamples)
++{
++  int i;
++  if( lengthInSamples == tableLength )
++  {
++    // just copy the values into the internal buffer, when the length of the passed table and the
++    // internal table match:
++    for( i=0; i<tableLength; i++ )
++      prototypeTable[i] = newWaveForm[i];
++  }
++  else
++  {
++    // implement periodic sinc-interpolation here...
++  }
++  generateMipMap();
++}
++
++void MipMappedWaveTable::setWaveform(int newWaveform)
++{
++  if( (newWaveform >= 0) && (newWaveform != waveform) )
++  {
++    waveform = newWaveform;
++    renderWaveform();
++  }
++}
++
++void MipMappedWaveTable::setSymmetry(double newSymmetry)
++{
++  symmetry = newSymmetry;
++  renderWaveform();
++}
++
++//-------------------------------------------------------------------------------------------------
++// internal functions:
++
++void MipMappedWaveTable::initPrototypeTable()
++{
++  for(int i=0; i<tableLength; i++)
++    prototypeTable[i] = 0.0f;
++}
++
++void MipMappedWaveTable::initTableSet()
++{
++  int t, i; // indices fo table and position
++  for(t=0; t<numTables; t++)
++    for(i=0; i<tableLength+4; i++)
++      tableSet[t][i] = 0.0;
++}
++
++void MipMappedWaveTable::removeDC()
++{
++  // calculate DC-offset (= average value of the table):
++  double dcOffset = 0.0;
++  int i;
++  for(i=0; i<tableLength; i++)
++    dcOffset += prototypeTable[i];
++  dcOffset = dcOffset / tableLength;
++
++  // remove DC-Offset:
++  for(i=0; i<tableLength; i++)
++    prototypeTable[i] -= dcOffset;
++}
++
++void MipMappedWaveTable::normalize()
++{
++  // find maximum:
++  double max = 0.0;
++  int    i;
++  for(i=0; i<tableLength; i++)
++    if( fabs(prototypeTable[i]) > max)
++      max = fabs(prototypeTable[i]);
++
++  // normalize to amplitude 1.0:
++  double scale = 1.0/max;
++  for(i=0; i<tableLength; i++)
++    prototypeTable[i] *= scale;
++}
++
++void MipMappedWaveTable::reverseTime()
++{
++  int    i;
++  float tmpTable[tableLength+4];
++
++  for(i=0; i<tableLength; i++)
++    tmpTable[i] = prototypeTable[tableLength-i-1];
++
++  for(i=0; i<tableLength; i++)
++    prototypeTable[i] = tmpTable[i];
++}
++
++void MipMappedWaveTable::renderWaveform()
++{
++  switch( waveform )
++  {
++  case   SINE:      fillWithSine();        break;
++  case   TRIANGLE:  fillWithTriangle();    break;
++  case   SQUARE:    fillWithSquare();      break;
++  case   SAW:       fillWithSaw();         break;
++  case   SQUARE303: fillWithSquare303();   break;
++  case   SAW303:    fillWithSaw303();      break;
++
++  default :  fillWithSine();
++  }
++}
++
 +void MipMappedWaveTable::generateMipMap()
 +{
 +  double* spectrum = new double[tableLength];
@@ -345,25 +1472,337 @@ index dcaeda6..da61d50 100644
 +  delete[] tempIn;
 +  delete[] spectrum;
 +}
- 
- //-------------------------------------------------------------------------------------------------
- // fill the prototype-table with various standard waveforms:
++
++//-------------------------------------------------------------------------------------------------
++// fill the prototype-table with various standard waveforms:
++
++void MipMappedWaveTable::fillWithSine()
++{
++  for (long i=0; i<tableLength; i++)
++    prototypeTable[i] = sin( (2.0*PI*i) / (double) (tableLength) );
++  generateMipMap();
++}
++
++void MipMappedWaveTable::fillWithTriangle()
++{
++  int i;
++  for (i=0; i<(tableLength/4); i++)
++    prototypeTable[i] = (double)(4*i) / (double)(tableLength);
++
++  for (i=(tableLength/4); i<(3*tableLength/4); i++)
++    prototypeTable[i] = 2.0 - ((double)(4*i) / (double)(tableLength));
++
++  for (i=(3*tableLength/4); i<(tableLength); i++)
++    prototypeTable[i] = -4.0+ ((double)(4*i) / (double)(tableLength));
++
++  generateMipMap();
++}
++
++void MipMappedWaveTable::fillWithSquare()
++{
++  int    N  = tableLength;
++  double k  = symmetry;
++  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
++  for(int n=0; n<N1; n++)
++    prototypeTable[n] = +1.0;
++  for(int n=N1; n<N; n++)
++    prototypeTable[n] = -1.0;
++
++  generateMipMap();
++}
++
++void MipMappedWaveTable::fillWithSaw()
++{
++  int    N  = tableLength;
++  double k  = symmetry;
++  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
++  int    N2 = N-N1;
++  double s1 = 1.0 / (N1-1);
++  double s2 = 1.0 / N2;
++  for(int n=0; n<N1; n++)
++    prototypeTable[n] = s1*n;
++  for(int n=N1; n<N; n++)
++    prototypeTable[n] = -1.0 + s2*(n-N1);
++
++  generateMipMap();
++}
++
++void MipMappedWaveTable::fillWithSquare303()
++{
++  // generate the saw-wave:
++  int    N  = tableLength;
++  double k  = 0.5;
++  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
++  int    N2 = N-N1;
++  double s1 = 1.0 / (N1-1);
++  double s2 = 1.0 / N2;
++  for(int n=0; n<N1; n++)
++    prototypeTable[n] = s1*n;
++  for(int n=N1; n<N; n++)
++    prototypeTable[n] = -1.0 + s2*(n-N1);
++
++  // switch polarity and apply tanh-shaping with dc-offset:
++  for(int n=0; n<N; n++)
++    prototypeTable[n] = -tanh(tanhShaperFactor*prototypeTable[n] + tanhShaperOffset);
++
++  // do a circular shift to phase-align with the saw-wave, when both waveforms are mixed:
++  int nShift = roundToInt(N*squarePhaseShift/360.0);
++  circularShift(prototypeTable, N, nShift);
++
++  generateMipMap();
++}
++
++void MipMappedWaveTable::fillWithSaw303()
++{
++  // generate the saw-wave:
++  int    N  = tableLength;
++  double k  = 0.5;
++  int    N1 = clip(roundToInt(k*(N-1)), 1, N-1);
++  int    N2 = N-N1;
++  double s1 = 1.0 / (N1-1);
++  double s2 = 1.0 / N2;
++  for(int n=0; n<N1; n++)
++    prototypeTable[n] = s1*n;
++  for(int n=N1; n<N; n++)
++    prototypeTable[n] = -1.0 + s2*(n-N1);
++
++  // switch polarity:
++  //for(int n=0; n<N; n++)
++  //  prototypeTable[n] = -prototypeTable[n];
++
++  generateMipMap();
++}
++
++void MipMappedWaveTable::fillWithPeak()
++{
++  int i;
++  for (i=0; i<(tableLength/2); i++)
++    prototypeTable[i] = 1 - (double)(2*i) / (double)(tableLength);
++
++  for (i=(tableLength/2); i<(tableLength); i++)
++    prototypeTable[i] = 0.0;
++
++  removeDC();
++  normalize();
++
++  generateMipMap();
++}
++
++void MipMappedWaveTable::fillWithMoogSaw()
++{
++  // the sawUp part:
++  int i;
++  for (i=0; i<(tableLength/2); i++)
++    prototypeTable[i] = (double)(2*i) / (double)(tableLength);
++
++  for (i=(tableLength/2); i<(tableLength); i++)
++    prototypeTable[i] = (double)(2*i) / (double)(tableLength) - 2.0;
++
++  // the triangle part:
++  for (i=0; i<(tableLength/2); i++)
++    prototypeTable[i] += 1 - (double)(4*i) / (double)(tableLength);
++
++  for (i=(tableLength/2); i<tableLength; i++)
++    prototypeTable[i] += -1 + (double)(4*i) / (double)(tableLength);
++
++  removeDC();
++  normalize();
++
++  generateMipMap();
++}
++
++
++
++
++
++
++
++
++
++
++
++
++
 diff --git a/Source/DSPCode/rosic_MipMappedWaveTable.h b/Source/DSPCode/rosic_MipMappedWaveTable.h
-index f6a3f64..5fc4627 100644
+index f6a3f64..f8415e9 100644
 --- a/Source/DSPCode/rosic_MipMappedWaveTable.h
 +++ b/Source/DSPCode/rosic_MipMappedWaveTable.h
-@@ -166,24 +166,23 @@ namespace rosic
-     int    waveform;   // index of the currently chosen native waveform
-     double sampleRate; // the sampleRate
- 
+@@ -1,227 +1,226 @@
+-#ifndef rosic_MipMappedWaveTable_h
+-#define rosic_MipMappedWaveTable_h
+-
+-// rosic-indcludes:
+-#include "rosic_FunctionTemplates.h"
+-#include "rosic_FourierTransformerRadix2.h"
+-
+-namespace rosic
+-{
+-
+-  /**
+-
+-  This is a class for generating and storing a single-cycle-waveform in a lookup-table and 
+-  retrieving values form it at arbitrary positions by means of interpolation.
+-
+-  */
+-
+-  class MipMappedWaveTable
+-  {
+-
+-    // Oscillator and SuperOscillator classes need access to certain protected member-variables 
+-    // (namely the tableLength and related quantities), so we declare them as friend-classes:
+-    friend class Oscillator;
+-    friend class BlendOscillator;
+-    friend class SuperOscillator;
+-    // \ todo: get rid of this by providing get-functions
+-
+-  public:
+-
+-    enum waveforms
+-    {
+-      SILENCE = 0,
+-      SINE, 
+-      TRIANGLE,
+-      SQUARE,
+-      SAW,
+-      SQUARE303,
+-      SAW303
+-    };
+-
+-    //---------------------------------------------------------------------------------------------
+-    // construction/destruction:
+-
+-    /** Constructor. */
+-    MipMappedWaveTable();          
+-
+-    /** Destructor. */
+-    ~MipMappedWaveTable();         
+-
+-    //---------------------------------------------------------------------------------------------
+-    // parmeter-settings:
+-
+-    /** Selects a waveform from the set of built-in wavforms. The object generates the 
+-    prototype-waveform by some algorithmic rules and renders various bandlimited version of it via 
+-    FFT/iFFT. */
+-    void setWaveform(int newWaveform);
+-
+-    /** Overloaded function to set the waveform form outside this class. This function expects a 
+-    pointer to the prototype-waveform to be handed over along with the length of this waveform. It 
+-    copies the values into the internal buffers and renders various bandlimited version via 
+-    FFT/iFFT.
+-    \todo: Interpolation for the case that lengthInSamples does not match the length of the 
+-    internal table-length. */
+-    void setWaveform(double* newWaveform, int lengthInSamples);
+-
+-    /** Sets the time symmetry between the first and second half-wave (as value between 0...1) - 
+-    for a square wave, this is also known as pulse-width. Currently only implemented for square and 
+-    saw waveforms. */
+-    void setSymmetry(double newSymmetry);
+-
+-    // internal 'back-panel' parameters:
+-
+-    /** Sets the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, to 
+-    be scrapped eventually. */
+-    void setTanhShaperDriveFor303Square(double newDrive)
+-    { tanhShaperFactor = dB2amp(newDrive); fillWithSquare303(); }
+-
+-    /** Sets the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
+-    parameter, to be scrapped eventually. */
+-    void setTanhShaperOffsetFor303Square(double newOffset)
+-    { tanhShaperOffset = newOffset; fillWithSquare303(); }
+-
+-    /** Sets the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
+-    - this is important when the two are mixed. */
+-    void set303SquarePhaseShift(double newShift)
+-    { squarePhaseShift = newShift; fillWithSquare303(); }
+-
+-    //---------------------------------------------------------------------------------------------
+-    // inquiry:
+-
+-    /** Returns the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, to 
+-    be scrapped eventually. */
+-    double getTanhShaperDriveFor303Square() const { return amp2dB(tanhShaperFactor); }
+-
+-    /** Returns the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
+-    parameter, to be scrapped eventually. */
+-    double getTanhShaperOffsetFor303Square() const { return tanhShaperOffset; }
+-
+-    /** Returns the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
+-    - this is important when the two are mixed. */
+-    double get303SquarePhaseShift() const { return squarePhaseShift; }
+-
+-    //---------------------------------------------------------------------------------------------
+-    // audio processing:
+-
+-    /** Returns the value at position 'integerPart+fractionalPart' of table 'tableIndex' with 
+-    linear interpolation - this function may be preferred over 
+-    getValueLinear(double phaseIndex, int tableIndex) when you want to calculate the integer and 
+-    fractional part of the phase-index yourself. */
+-    INLINE double getValueLinear(int integerPart, double fractionalPart, int tableIndex);
+-
+-    /** Returns the value at position 'phaseIndex' of table 'tableIndex' with linear 
+-    interpolation - this function computes the integer and fractional part of the phaseIndex
+-    internally. */
+-    INLINE double getValueLinear(double phaseIndex, int tableIndex);
+-
+-  protected:
+-
+-    // functions to fill table with the built-in waveforms (these functions are
+-    // called from setWaveform(int newWaveform):
+-    void fillWithSine();
+-    void fillWithTriangle();
+-    void fillWithSquare();
+-    void fillWithSaw();
+-    void fillWithSquare303();
+-    void fillWithSaw303();
+-    void fillWithPeak();
+-    void fillWithMoogSaw();
+-
+-    void initPrototypeTable();
+-      // fills the "prototypeTable"-variable with all zeros
+-
+-    void initTableSet();
+-      // fills the "tableSet"-variable with all zeros
+-
+-    void removeDC();
+-      // removes dc-component from the waveform in the prototype-table
+-
+-    void normalize();
+-      // normalizes the amplitude of the prototype-table to 1.0
+-
+-    void reverseTime();
+-      // time-reverses the prototype-table
+-
+-    /** Renders the prototype waveform and generates the mip-map from that. */
+-    void renderWaveform();
+-
+-    void generateMipMap();
+-      // generates a multisample from the prototype table, where each of the
+-      // successive tables contains one half of the spectrum of the previous one
+-
+-    static const int tableLength = 2048;
+-      // Length of the lookup-table. The actual length of the allocated memory is 4 samples longer, 
+-      // to store additional samples for the interpolator (which are the same values as at the 
+-      // beginning of the buffer) */
+-
+-
+-    double symmetry; // symmetry between 1st and 2nd half-wave
+-
+-    static const int numTables = 12;
+-      // The Oscillator class uses a one table-per octave multisampling to avoid aliasing. With a 
+-      // table-size of 8192 and a sample-sample rate of  44100, the 12th table will have a 
+-      // fundamental frequency (the frequency where the increment is 1) of 11025 which is good for 
+-      // the highest frequency. 
+-
+-    int    waveform;   // index of the currently chosen native waveform
+-    double sampleRate; // the sampleRate
+-
 -    double prototypeTable[tableLength];
-+    float prototypeTable[tableLength];
-       // this is the prototype-table with full bandwidth. one additional sample (same as 
-       // prototypeTable[0]) for linear interpolation without need for table wraparound at the last 
-       // sample (-> saves one if-statement each audio-cycle) ...and a three further addtional 
-       // samples for more elaborate interpolations like cubic (not implemented yet, also:
-       // the fillWith...()-functions don't support these samples yet). */
- 
+-      // this is the prototype-table with full bandwidth. one additional sample (same as 
+-      // prototypeTable[0]) for linear interpolation without need for table wraparound at the last 
+-      // sample (-> saves one if-statement each audio-cycle) ...and a three further addtional 
+-      // samples for more elaborate interpolations like cubic (not implemented yet, also:
+-      // the fillWith...()-functions don't support these samples yet). */
+-
 -    double tableSet[numTables][tableLength+4];
 -      // The multisample for anti-aliased waveform generation. The 4 additional values are equal 
 -      // to the first 4 values in the table for easier interpolation. The first index is for the 
@@ -375,6 +1814,222 @@ index f6a3f64..5fc4627 100644
 -    FourierTransformerRadix2 fourierTransformer;
 -
 -    // internal parameters:
+-    double tanhShaperFactor, tanhShaperOffset, squarePhaseShift;
+-
+-  };
+-
+-  //-----------------------------------------------------------------------------------------------
+-  // inlined functions:
+-    
+-  INLINE double MipMappedWaveTable::getValueLinear(int integerPart, double fractionalPart, int tableIndex)
+-  {
+-    // ensure, that the table index is in the valid range:
+-    if( tableIndex<=0 )
+-      tableIndex = 0;
+-    else if ( tableIndex>numTables )
+-      tableIndex = 11;
+-
+-    return   (1.0-fractionalPart) * tableSet[tableIndex][integerPart] 
+-           +      fractionalPart  * tableSet[tableIndex][integerPart+1];
+-  }
+-
+-  INLINE double MipMappedWaveTable::getValueLinear(double phaseIndex, int tableIndex)
+-  {
+-    /*
+-    // ensure, that the table index is in the valid range:
+-    if( tableIndex<=0 )
+-      tableIndex = 0;
+-    else if ( tableIndex>numTables )
+-      tableIndex = 11;
+-      */
+-
+-    // calculate integer and fractional part of the phaseIndex:
+-    int    intIndex = floorInt(phaseIndex);
+-    double frac     = phaseIndex  - (double) intIndex;
+-    return getValueLinear(intIndex, frac, tableIndex);
+-
+-    // lookup value in the table with linear interpolation and return it:
+-    //return (1.0-frac)*tableSet[tableIndex][intIndex] + frac*tableSet[tableIndex][intIndex+1];
+-  }
+-
+-} // end namespace rosic
+-
+-#endif // rosic_MipMappedWaveTable_h
++#ifndef rosic_MipMappedWaveTable_h
++#define rosic_MipMappedWaveTable_h
++
++// rosic-indcludes:
++#include "rosic_FunctionTemplates.h"
++#include "rosic_FourierTransformerRadix2.h"
++
++namespace rosic
++{
++
++  /**
++
++  This is a class for generating and storing a single-cycle-waveform in a lookup-table and 
++  retrieving values form it at arbitrary positions by means of interpolation.
++
++  */
++
++  class MipMappedWaveTable
++  {
++
++    // Oscillator and SuperOscillator classes need access to certain protected member-variables 
++    // (namely the tableLength and related quantities), so we declare them as friend-classes:
++    friend class Oscillator;
++    friend class BlendOscillator;
++    friend class SuperOscillator;
++    // \ todo: get rid of this by providing get-functions
++
++  public:
++
++    enum waveforms
++    {
++      SILENCE = 0,
++      SINE, 
++      TRIANGLE,
++      SQUARE,
++      SAW,
++      SQUARE303,
++      SAW303
++    };
++
++    //---------------------------------------------------------------------------------------------
++    // construction/destruction:
++
++    /** Constructor. */
++    MipMappedWaveTable();          
++
++    /** Destructor. */
++    ~MipMappedWaveTable();         
++
++    //---------------------------------------------------------------------------------------------
++    // parmeter-settings:
++
++    /** Selects a waveform from the set of built-in wavforms. The object generates the 
++    prototype-waveform by some algorithmic rules and renders various bandlimited version of it via 
++    FFT/iFFT. */
++    void setWaveform(int newWaveform);
++
++    /** Overloaded function to set the waveform form outside this class. This function expects a 
++    pointer to the prototype-waveform to be handed over along with the length of this waveform. It 
++    copies the values into the internal buffers and renders various bandlimited version via 
++    FFT/iFFT.
++    \todo: Interpolation for the case that lengthInSamples does not match the length of the 
++    internal table-length. */
++    void setWaveform(double* newWaveform, int lengthInSamples);
++
++    /** Sets the time symmetry between the first and second half-wave (as value between 0...1) - 
++    for a square wave, this is also known as pulse-width. Currently only implemented for square and 
++    saw waveforms. */
++    void setSymmetry(double newSymmetry);
++
++    // internal 'back-panel' parameters:
++
++    /** Sets the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, to 
++    be scrapped eventually. */
++    void setTanhShaperDriveFor303Square(double newDrive)
++    { tanhShaperFactor = dB2amp(newDrive); fillWithSquare303(); }
++
++    /** Sets the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
++    parameter, to be scrapped eventually. */
++    void setTanhShaperOffsetFor303Square(double newOffset)
++    { tanhShaperOffset = newOffset; fillWithSquare303(); }
++
++    /** Sets the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
++    - this is important when the two are mixed. */
++    void set303SquarePhaseShift(double newShift)
++    { squarePhaseShift = newShift; fillWithSquare303(); }
++
++    //---------------------------------------------------------------------------------------------
++    // inquiry:
++
++    /** Returns the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, to 
++    be scrapped eventually. */
++    double getTanhShaperDriveFor303Square() const { return amp2dB(tanhShaperFactor); }
++
++    /** Returns the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
++    parameter, to be scrapped eventually. */
++    double getTanhShaperOffsetFor303Square() const { return tanhShaperOffset; }
++
++    /** Returns the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
++    - this is important when the two are mixed. */
++    double get303SquarePhaseShift() const { return squarePhaseShift; }
++
++    //---------------------------------------------------------------------------------------------
++    // audio processing:
++
++    /** Returns the value at position 'integerPart+fractionalPart' of table 'tableIndex' with 
++    linear interpolation - this function may be preferred over 
++    getValueLinear(double phaseIndex, int tableIndex) when you want to calculate the integer and 
++    fractional part of the phase-index yourself. */
++    INLINE double getValueLinear(int integerPart, double fractionalPart, int tableIndex);
++
++    /** Returns the value at position 'phaseIndex' of table 'tableIndex' with linear 
++    interpolation - this function computes the integer and fractional part of the phaseIndex
++    internally. */
++    INLINE double getValueLinear(double phaseIndex, int tableIndex);
++
++  protected:
++
++    // functions to fill table with the built-in waveforms (these functions are
++    // called from setWaveform(int newWaveform):
++    void fillWithSine();
++    void fillWithTriangle();
++    void fillWithSquare();
++    void fillWithSaw();
++    void fillWithSquare303();
++    void fillWithSaw303();
++    void fillWithPeak();
++    void fillWithMoogSaw();
++
++    void initPrototypeTable();
++      // fills the "prototypeTable"-variable with all zeros
++
++    void initTableSet();
++      // fills the "tableSet"-variable with all zeros
++
++    void removeDC();
++      // removes dc-component from the waveform in the prototype-table
++
++    void normalize();
++      // normalizes the amplitude of the prototype-table to 1.0
++
++    void reverseTime();
++      // time-reverses the prototype-table
++
++    /** Renders the prototype waveform and generates the mip-map from that. */
++    void renderWaveform();
++
++    void generateMipMap();
++      // generates a multisample from the prototype table, where each of the
++      // successive tables contains one half of the spectrum of the previous one
++
++    static const int tableLength = 2048;
++      // Length of the lookup-table. The actual length of the allocated memory is 4 samples longer, 
++      // to store additional samples for the interpolator (which are the same values as at the 
++      // beginning of the buffer) */
++
++
++    double symmetry; // symmetry between 1st and 2nd half-wave
++
++    static const int numTables = 12;
++      // The Oscillator class uses a one table-per octave multisampling to avoid aliasing. With a 
++      // table-size of 8192 and a sample-sample rate of  44100, the 12th table will have a 
++      // fundamental frequency (the frequency where the increment is 1) of 11025 which is good for 
++      // the highest frequency. 
++
++    int    waveform;   // index of the currently chosen native waveform
++    double sampleRate; // the sampleRate
++
++    float prototypeTable[tableLength];
++      // this is the prototype-table with full bandwidth. one additional sample (same as 
++      // prototypeTable[0]) for linear interpolation without need for table wraparound at the last 
++      // sample (-> saves one if-statement each audio-cycle) ...and a three further addtional 
++      // samples for more elaborate interpolations like cubic (not implemented yet, also:
++      // the fillWith...()-functions don't support these samples yet). */
++
 +    float tableSet[numTables][tableLength+4];
 +      // The multisample for anti-aliased waveform generation. The 4 additional values are equal 
 +      // to the first 4 values in the table for easier interpolation. The first index is for the 
@@ -385,23 +2040,390 @@ index f6a3f64..5fc4627 100644
 +    FourierTransformerRadix2 fourierTransformer;
 +
 +    // internal parameters:
-     double tanhShaperFactor, tanhShaperOffset, squarePhaseShift;
- 
-   };
++    double tanhShaperFactor, tanhShaperOffset, squarePhaseShift;
++
++  };
++
++  //-----------------------------------------------------------------------------------------------
++  // inlined functions:
++    
++  INLINE double MipMappedWaveTable::getValueLinear(int integerPart, double fractionalPart, int tableIndex)
++  {
++    // ensure, that the table index is in the valid range:
++    if( tableIndex<=0 )
++      tableIndex = 0;
++    else if ( tableIndex>numTables )
++      tableIndex = 11;
++
++    return   (1.0-fractionalPart) * tableSet[tableIndex][integerPart] 
++           +      fractionalPart  * tableSet[tableIndex][integerPart+1];
++  }
++
++  INLINE double MipMappedWaveTable::getValueLinear(double phaseIndex, int tableIndex)
++  {
++    /*
++    // ensure, that the table index is in the valid range:
++    if( tableIndex<=0 )
++      tableIndex = 0;
++    else if ( tableIndex>numTables )
++      tableIndex = 11;
++      */
++
++    // calculate integer and fractional part of the phaseIndex:
++    int    intIndex = floorInt(phaseIndex);
++    double frac     = phaseIndex  - (double) intIndex;
++    return getValueLinear(intIndex, frac, tableIndex);
++
++    // lookup value in the table with linear interpolation and return it:
++    //return (1.0-frac)*tableSet[tableIndex][intIndex] + frac*tableSet[tableIndex][intIndex+1];
++  }
++
++} // end namespace rosic
++
++#endif // rosic_MipMappedWaveTable_h
 diff --git a/Source/DSPCode/rosic_Open303.cpp b/Source/DSPCode/rosic_Open303.cpp
-index 1ef8ac7..c2ce845 100644
+index 1ef8ac7..76b70de 100644
 --- a/Source/DSPCode/rosic_Open303.cpp
 +++ b/Source/DSPCode/rosic_Open303.cpp
-@@ -5,12 +5,13 @@ using namespace rosic;
- //-------------------------------------------------------------------------------------------------
- // construction/destruction:
- 
+@@ -1,331 +1,377 @@
+-#include "rosic_Open303.h"
+-
+-using namespace rosic;
+-
+-//-------------------------------------------------------------------------------------------------
+-// construction/destruction:
+-
 -Open303::Open303()
 -{
 -  tuning           =   440.0;
 -  ampScaler        =     1.0;
 -  oscFreq          =   440.0;
 -  sampleRate       = 44100.0;
+-  level            =   -12.0;
+-  levelByVel       =    12.0;
+-  accent           =     0.0;
+-  slideTime        =    60.0;
+-  cutoff           =  1000.0;
+-  envUpFraction    =     2.0/3.0;
+-  normalAttack     =     3.0;
+-  accentAttack     =     3.0;
+-  normalDecay      =  1000.0;
+-  accentDecay      =   200.0;
+-  normalAmpRelease =     1.0;
+-  accentAmpRelease =    50.0;
+-  accentGain       =     0.0;
+-  pitchWheelFactor =     1.0;
+-  currentNote      =    -1;
+-  noteOffCountDown =     0;
+-  slideToNextNote  = false;
+-  idle             = true;
+-
+-  setEnvMod(25.0);
+-
+-  oscillator.setWaveTable1(&waveTable1);
+-  oscillator.setWaveForm1(MipMappedWaveTable::SAW303);
+-  oscillator.setWaveTable2(&waveTable2);
+-  oscillator.setWaveForm2(MipMappedWaveTable::SQUARE303);
+-
+-  //mainEnv.setNormalizeSum(true);
+-  mainEnv.setNormalizeSum(false);
+-
+-  ampEnv.setAttack(0.0);
+-  ampEnv.setDecay(1230.0);
+-  ampEnv.setSustainLevel(0.0);
+-  ampEnv.setRelease(0.5);
+-  ampEnv.setTauScale(1.0);
+-
+-  pitchSlewLimiter.setTimeConstant(60.0);
+-  //ampDeClicker.setTimeConstant(2.0);
+-  ampDeClicker.setMode(BiquadFilter::LOWPASS12);
+-  ampDeClicker.setGain( amp2dB(sqrt(0.5)) );
+-  ampDeClicker.setFrequency(200.0);
+-
+-  rc1.setTimeConstant(0.0);
+-  rc2.setTimeConstant(15.0);
+-
+-  highpass1.setMode(OnePoleFilter::HIGHPASS);
+-  highpass2.setMode(OnePoleFilter::HIGHPASS);
+-  allpass.setMode(OnePoleFilter::ALLPASS);
+-  notch.setMode(BiquadFilter::BANDREJECT);
+-
+-  setSampleRate(sampleRate);
+-
+-  // tweakables:
+-  oscillator.setPulseWidth(50.0);
+-  highpass1.setCutoff(44.486);
+-  highpass2.setCutoff(24.167);
+-  allpass.setCutoff(14.008);
+-  notch.setFrequency(7.5164);
+-  notch.setBandwidth(4.7);
+-
+-  filter.setFeedbackHighpassCutoff(150.0);
+-}
+-
+-Open303::~Open303()
+-{
+-
+-}
+-
+-//-------------------------------------------------------------------------------------------------
+-// parameter settings:
+-
+-void Open303::setSampleRate(double newSampleRate)
+-{
+-  mainEnv.setSampleRate         (       newSampleRate);
+-  ampEnv.setSampleRate          (       newSampleRate);
+-  pitchSlewLimiter.setSampleRate((float)newSampleRate);
+-  ampDeClicker.setSampleRate(    (float)newSampleRate);
+-  rc1.setSampleRate(             (float)newSampleRate);
+-  rc2.setSampleRate(             (float)newSampleRate);
+-  sequencer.setSampleRate(              newSampleRate);
+-
+-  highpass2.setSampleRate     (         newSampleRate);
+-  allpass.setSampleRate       (         newSampleRate);
+-  notch.setSampleRate         (         newSampleRate);
+-
+-  highpass1.setSampleRate     (  oversampling*newSampleRate);
+-
+-  oscillator.setSampleRate    (  oversampling*newSampleRate);
+-  filter.setSampleRate        (  oversampling*newSampleRate);
+-}
+-
+-void Open303::setCutoff(double newCutoff)
+-{
+-  cutoff = newCutoff;
+-  calculateEnvModScalerAndOffset();
+-}
+-
+-void Open303::setEnvMod(double newEnvMod)
+-{
+-  envMod = newEnvMod;
+-  calculateEnvModScalerAndOffset();
+-}
+-
+-void Open303::setAccent(double newAccent)
+-{
+-  accent = 0.01 * newAccent;
+-}
+-
+-void Open303::setVolume(double newLevel)
+-{
+-  level     = newLevel;
+-  ampScaler = dB2amp(level);
+-}
+-
+-void Open303::setSlideTime(double newSlideTime)
+-{
+-  if( newSlideTime >= 0.0 )
+-  {
+-    slideTime = newSlideTime;
+-    pitchSlewLimiter.setTimeConstant((float)(0.2*slideTime));  // \todo: tweak the scaling constant
+-  }
+-}
+-
+-void Open303::setPitchBend(double newPitchBend)
+-{
+-  pitchWheelFactor = pitchOffsetToFreqFactor(newPitchBend);
+-}
+-
+-//------------------------------------------------------------------------------------------------------------
+-// others:
+-
+-void Open303::noteOn(int noteNumber, int velocity)
+-{
+-  if( sequencer.modeWasChanged() )
+-    allNotesOff();
+-
+-  if( sequencer.getSequencerMode() != AcidSequencer::OFF )
+-  {
+-    if( velocity == 0 )
+-    {
+-      sequencer.stop();
+-      releaseNote(currentNote);
+-      currentNote = -1;
+-    }
+-    else
+-    {
+-      sequencer.start();
+-      noteOffCountDown = std::numeric_limits<int>::max();
+-      slideToNextNote  = false;
+-      currentNote      = noteNumber;
+-    }
+-    idle = false;
+-    return;
+-  }
+-
+-  if( velocity == 0 ) // velocity zero indicates note-off events
+-  {
+-    MidiNoteEvent releasedNote(noteNumber, 0);
+-    noteList.remove(releasedNote);
+-    if( noteList.empty() )
+-    {
+-      currentNote = -1;
+-    }
+-    else
+-    {
+-      currentNote = noteList.front().getKey();
+-    }
+-    releaseNote(noteNumber);
+-  }
+-  else // velocity was not zero, so this is an actual note-on
+-  {
+-    // check if the note-list is empty (indicating that currently no note is playing) - if so,
+-    // trigger a new note, otherwise, slide to the new note:
+-    if( noteList.empty() )
+-      triggerNote(noteNumber, velocity >= 100);
+-    else
+-      slideToNote(noteNumber, velocity >= 100);
+-
+-    currentNote = noteNumber;
+-
+-    // and we need to add the new note to our list, of course:
+-    MidiNoteEvent newNote(noteNumber, velocity);
+-    noteList.push_front(newNote);
+-  }
+-  idle = false;
+-}
+-
+-void Open303::allNotesOff()
+-{
+-  noteList.clear();
+-  ampEnv.noteOff();
+-  currentNote = -1;
+-}
+-
+-void Open303::triggerNote(int noteNumber, bool hasAccent)
+-{
+-  // retrigger osc and reset filter buffers only if amplitude is near zero (to avoid clicks):
+-  if( idle )
+-  {
+-    oscillator.resetPhase();
+-    filter.reset();
+-    highpass1.reset();
+-    highpass2.reset();
+-    allpass.reset();
+-    notch.reset();
+-    antiAliasFilter.reset();
+-    ampDeClicker.reset();
+-  }
+-
+-  if( hasAccent )
+-  {
+-    accentGain = accent;
+-    setMainEnvDecay(accentDecay);
+-    ampEnv.setRelease(accentAmpRelease);
+-  }
+-  else
+-  {
+-    accentGain = 0.0;
+-    setMainEnvDecay(normalDecay);
+-    ampEnv.setRelease(normalAmpRelease);
+-  }
+-
+-  oscFreq = pitchToFreq(noteNumber, tuning);
+-  pitchSlewLimiter.setState(oscFreq);
+-  mainEnv.trigger();
+-  ampEnv.noteOn(true);
+-  idle = false;
+-}
+-
+-void Open303::slideToNote(int noteNumber, bool hasAccent)
+-{
+-  oscFreq = pitchToFreq(noteNumber, tuning);
+-
+-  if( hasAccent )
+-  {
+-    accentGain = accent;
+-    setMainEnvDecay(accentDecay);
+-    ampEnv.setRelease(accentAmpRelease);
+-  }
+-  else
+-  {
+-    accentGain = 0.0;
+-    setMainEnvDecay(normalDecay);
+-    ampEnv.setRelease(normalAmpRelease);
+-  }
+-  idle = false;
+-}
+-
+-void Open303::releaseNote(int noteNumber)
+-{
+-  // check if the note-list is empty now. if so, trigger a release, otherwise slide to the note
+-  // at the beginning of the list (this is the most recent one which is still in the list). this
+-  // initiates a slide back to the most recent note that is still being held:
+-  if( noteList.empty() )
+-  {
+-    ampEnv.noteOff();
+-  }
+-  else
+-  {
+-    // initiate slide back:
+-    oscFreq     = pitchToFreq(currentNote);
+-  }
+-}
+-
+-void Open303::setMainEnvDecay(double newDecay)
+-{
+-  mainEnv.setDecayTimeConstant(newDecay);
+-  updateNormalizer1();
+-  updateNormalizer2();
+-}
+-
+-void Open303::calculateEnvModScalerAndOffset()
+-{
+-  bool useMeasuredMapping = true; // might be shown as user parameter later
+-  if( useMeasuredMapping == true )
+-  {
+-    // define some constants that arise from the measurements:
+-    const double c0   = 3.138152786059267e+002;  // lowest nominal cutoff
+-    const double c1   = 2.394411986817546e+003;  // highest nominal cutoff
+-    const double oF   = 0.048292930943553;       // factor in line equation for offset
+-    const double oC   = 0.294391201442418;       // constant in line equation for offset
+-    const double sLoF = 3.773996325111173;       // factor in line eq. for scaler at low cutoff
+-    const double sLoC = 0.736965594166206;       // constant in line eq. for scaler at low cutoff
+-    const double sHiF = 4.194548788411135;       // factor in line eq. for scaler at high cutoff
+-    const double sHiC = 0.864344900642434;       // constant in line eq. for scaler at high cutoff
+-
+-    // do the calculation of the scaler and offset:
+-    double e   = linToLin(envMod, 0.0, 100.0, 0.0, 1.0);
+-    double c   = expToLin(cutoff, c0,   c1,   0.0, 1.0);
+-    double sLo = sLoF*e + sLoC;
+-    double sHi = sHiF*e + sHiC;
+-    envScaler  = (1-c)*sLo + c*sHi;
+-    envOffset  =  oF*c + oC;
+-  }
+-  else
+-  {
+-    double upRatio   = pitchOffsetToFreqFactor(      envUpFraction *envMod);
+-    double downRatio = pitchOffsetToFreqFactor(-(1.0-envUpFraction)*envMod);
+-    envScaler        = upRatio - downRatio;
+-    if( envScaler != 0.0 ) // avoid division by zero
+-      envOffset = - (downRatio - 1.0) / (upRatio - downRatio);
+-    else
+-      envOffset = 0.0;
+-  }
+-}
+-
+-void Open303::updateNormalizer1()
+-{
+-  n1 = LeakyIntegrator::getNormalizer(mainEnv.getDecayTimeConstant(), rc1.getTimeConstant(),
+-    sampleRate);
+-  n1 = 1.0; // test
+-}
+-
+-void Open303::updateNormalizer2()
+-{
+-  n2 = LeakyIntegrator::getNormalizer(mainEnv.getDecayTimeConstant(), rc2.getTimeConstant(),
+-    sampleRate);
+-  n2 = 1.0; // test
+-}
++#include "rosic_Open303.h"
++
++using namespace rosic;
++
++//-------------------------------------------------------------------------------------------------
++// construction/destruction:
++
 +Open303::Open303()
 +{
 +  oversampling     =       4;
@@ -409,32 +2431,93 @@ index 1ef8ac7..c2ce845 100644
 +  ampScaler        =     1.0;
 +  oscFreq          =   440.0;
 +  sampleRate       = 44100.0;
-   level            =   -12.0;
-   levelByVel       =    12.0;
-   accent           =     0.0;
-@@ -81,9 +82,10 @@ Open303::~Open303()
- //-------------------------------------------------------------------------------------------------
- // parameter settings:
- 
--void Open303::setSampleRate(double newSampleRate)
--{
--  mainEnv.setSampleRate         (       newSampleRate);
++  level            =   -12.0;
++  levelByVel       =    12.0;
++  accent           =     0.0;
++  slideTime        =    60.0;
++  cutoff           =  1000.0;
++  envUpFraction    =     2.0/3.0;
++  normalAttack     =     3.0;
++  accentAttack     =     3.0;
++  normalDecay      =  1000.0;
++  accentDecay      =   200.0;
++  normalAmpRelease =     1.0;
++  accentAmpRelease =    50.0;
++  accentGain       =     0.0;
++  pitchWheelFactor =     1.0;
++  currentNote      =    -1;
++  noteOffCountDown =     0;
++  slideToNextNote  = false;
++  idle             = true;
++
++  setEnvMod(25.0);
++
++  oscillator.setWaveTable1(&waveTable1);
++  oscillator.setWaveForm1(MipMappedWaveTable::SAW303);
++  oscillator.setWaveTable2(&waveTable2);
++  oscillator.setWaveForm2(MipMappedWaveTable::SQUARE303);
++
++  //mainEnv.setNormalizeSum(true);
++  mainEnv.setNormalizeSum(false);
++
++  ampEnv.setAttack(0.0);
++  ampEnv.setDecay(1230.0);
++  ampEnv.setSustainLevel(0.0);
++  ampEnv.setRelease(0.5);
++  ampEnv.setTauScale(1.0);
++
++  pitchSlewLimiter.setTimeConstant(60.0);
++  //ampDeClicker.setTimeConstant(2.0);
++  ampDeClicker.setMode(BiquadFilter::LOWPASS12);
++  ampDeClicker.setGain( amp2dB(sqrt(0.5)) );
++  ampDeClicker.setFrequency(200.0);
++
++  rc1.setTimeConstant(0.0);
++  rc2.setTimeConstant(15.0);
++
++  highpass1.setMode(OnePoleFilter::HIGHPASS);
++  highpass2.setMode(OnePoleFilter::HIGHPASS);
++  allpass.setMode(OnePoleFilter::ALLPASS);
++  notch.setMode(BiquadFilter::BANDREJECT);
++
++  setSampleRate(sampleRate);
++
++  // tweakables:
++  oscillator.setPulseWidth(50.0);
++  highpass1.setCutoff(44.486);
++  highpass2.setCutoff(24.167);
++  allpass.setCutoff(14.008);
++  notch.setFrequency(7.5164);
++  notch.setBandwidth(4.7);
++
++  filter.setFeedbackHighpassCutoff(150.0);
++}
++
++Open303::~Open303()
++{
++
++}
++
++//-------------------------------------------------------------------------------------------------
++// parameter settings:
++
 +void Open303::setSampleRate(double newSampleRate)
 +{
 +  sampleRate = newSampleRate;
 +  mainEnv.setSampleRate         (       newSampleRate);
-   ampEnv.setSampleRate          (       newSampleRate);
-   pitchSlewLimiter.setSampleRate((float)newSampleRate);
-   ampDeClicker.setSampleRate(    (float)newSampleRate);
-@@ -97,11 +99,25 @@ void Open303::setSampleRate(double newSampleRate)
- 
-   highpass1.setSampleRate     (  oversampling*newSampleRate);
- 
--  oscillator.setSampleRate    (  oversampling*newSampleRate);
--  filter.setSampleRate        (  oversampling*newSampleRate);
--}
--
--void Open303::setCutoff(double newCutoff)
++  ampEnv.setSampleRate          (       newSampleRate);
++  pitchSlewLimiter.setSampleRate((float)newSampleRate);
++  ampDeClicker.setSampleRate(    (float)newSampleRate);
++  rc1.setSampleRate(             (float)newSampleRate);
++  rc2.setSampleRate(             (float)newSampleRate);
++  sequencer.setSampleRate(              newSampleRate);
++
++  highpass2.setSampleRate     (         newSampleRate);
++  allpass.setSampleRate       (         newSampleRate);
++  notch.setSampleRate         (         newSampleRate);
++
++  highpass1.setSampleRate     (  oversampling*newSampleRate);
++
 +  oscillator.setSampleRate    (  oversampling*newSampleRate);
 +  filter.setSampleRate        (  oversampling*newSampleRate);
 +}
@@ -454,15 +2537,88 @@ index 1ef8ac7..c2ce845 100644
 +}
 +
 +void Open303::setCutoff(double newCutoff)
- {
-   cutoff = newCutoff;
-   calculateEnvModScalerAndOffset();
-@@ -168,14 +184,22 @@ void Open303::noteOn(int noteNumber, int velocity)
-   if( velocity == 0 ) // velocity zero indicates note-off events
-   {
-     MidiNoteEvent releasedNote(noteNumber, 0);
--    noteList.remove(releasedNote);
--    if( noteList.empty() )
++{
++  cutoff = newCutoff;
++  calculateEnvModScalerAndOffset();
++}
++
++void Open303::setEnvMod(double newEnvMod)
++{
++  envMod = newEnvMod;
++  calculateEnvModScalerAndOffset();
++}
++
++void Open303::setAccent(double newAccent)
++{
++  accent = 0.01 * newAccent;
++}
++
++void Open303::setVolume(double newLevel)
++{
++  level     = newLevel;
++  ampScaler = dB2amp(level);
++}
++
++void Open303::setSlideTime(double newSlideTime)
++{
++  if( newSlideTime >= 0.0 )
++  {
++    slideTime = newSlideTime;
++    pitchSlewLimiter.setTimeConstant((float)(0.2*slideTime));  // \todo: tweak the scaling constant
++  }
++}
++
++void Open303::setPitchBend(double newPitchBend)
++{
++  pitchWheelFactor = pitchOffsetToFreqFactor(newPitchBend);
++}
++
++void Open303::setOscillatorFrequency(double newFrequency)
++{
++  if (newFrequency > 0.0)
++    oscFreq = newFrequency;
++}
++
++void Open303::setAccentGain(double newAccentGain)
++{
++  if (newAccentGain < 0.0)
++    accentGain = 0.0;
++  else if (newAccentGain > 1.0)
++    accentGain = 1.0;
++  else
++    accentGain = newAccentGain;
++}
++
++//------------------------------------------------------------------------------------------------------------
++// others:
++
++void Open303::noteOn(int noteNumber, int velocity)
++{
++  if( sequencer.modeWasChanged() )
++    allNotesOff();
++
++  if( sequencer.getSequencerMode() != AcidSequencer::OFF )
++  {
++    if( velocity == 0 )
++    {
++      sequencer.stop();
++      releaseNote(currentNote);
++      currentNote = -1;
++    }
++    else
++    {
++      sequencer.start();
++      noteOffCountDown = std::numeric_limits<int>::max();
++      slideToNextNote  = false;
++      currentNote      = noteNumber;
++    }
++    idle = false;
++    return;
++  }
++
++  if( velocity == 0 ) // velocity zero indicates note-off events
++  {
++    MidiNoteEvent releasedNote(noteNumber, 0);
 +    // Remove note from buffer
 +    for(int i = 0; i < noteCount; i++) {
 +      if(noteBuffer[i].getKey() == releasedNote.getKey()) {
@@ -473,30 +2629,28 @@ index 1ef8ac7..c2ce845 100644
 +      }
 +    }
 +    if( (noteCount == 0) )
-     {
-       currentNote = -1;
-     }
-     else
-     {
--      currentNote = noteList.front().getKey();
++    {
++      currentNote = -1;
++    }
++    else
++    {
 +      currentNote = noteBuffer[0].getKey();
-     }
-     releaseNote(noteNumber);
-   }
-@@ -183,7 +207,7 @@ void Open303::noteOn(int noteNumber, int velocity)
-   {
-     // check if the note-list is empty (indicating that currently no note is playing) - if so,
-     // trigger a new note, otherwise, slide to the new note:
--    if( noteList.empty() )
++    }
++    releaseNote(noteNumber);
++  }
++  else // velocity was not zero, so this is an actual note-on
++  {
++    // check if the note-list is empty (indicating that currently no note is playing) - if so,
++    // trigger a new note, otherwise, slide to the new note:
 +    if( (noteCount == 0) )
-       triggerNote(noteNumber, velocity >= 100);
-     else
-       slideToNote(noteNumber, velocity >= 100);
-@@ -192,14 +216,20 @@ void Open303::noteOn(int noteNumber, int velocity)
- 
-     // and we need to add the new note to our list, of course:
-     MidiNoteEvent newNote(noteNumber, velocity);
--    noteList.push_front(newNote);
++      triggerNote(noteNumber, velocity >= 100);
++    else
++      slideToNote(noteNumber, velocity >= 100);
++
++    currentNote = noteNumber;
++
++    // and we need to add the new note to our list, of course:
++    MidiNoteEvent newNote(noteNumber, velocity);
 +    // Add note to front of buffer
 +    if(noteCount < MAX_NOTES) {
 +      for(int i = noteCount; i > 0; i--)
@@ -504,45 +2658,601 @@ index 1ef8ac7..c2ce845 100644
 +      noteBuffer[0] = newNote;
 +      noteCount++;
 +    }
-   }
-   idle = false;
- }
- 
- void Open303::allNotesOff()
- {
--  noteList.clear();
++  }
++  idle = false;
++}
++
++void Open303::allNotesOff()
++{
 +  noteCount = 0;
-   ampEnv.noteOff();
-   currentNote = -1;
- }
-@@ -263,7 +293,7 @@ void Open303::releaseNote(int noteNumber)
-   // check if the note-list is empty now. if so, trigger a release, otherwise slide to the note
-   // at the beginning of the list (this is the most recent one which is still in the list). this
-   // initiates a slide back to the most recent note that is still being held:
--  if( noteList.empty() )
++  ampEnv.noteOff();
++  currentNote = -1;
++}
++
++void Open303::triggerNote(int noteNumber, bool hasAccent)
++{
++  // retrigger osc and reset filter buffers only if amplitude is near zero (to avoid clicks):
++  if( idle )
++  {
++    oscillator.resetPhase();
++    filter.reset();
++    highpass1.reset();
++    highpass2.reset();
++    allpass.reset();
++    notch.reset();
++    antiAliasFilter.reset();
++    ampDeClicker.reset();
++  }
++
++  if( hasAccent )
++  {
++    accentGain = accent;
++    setMainEnvDecay(accentDecay);
++    ampEnv.setRelease(accentAmpRelease);
++  }
++  else
++  {
++    accentGain = 0.0;
++    setMainEnvDecay(normalDecay);
++    ampEnv.setRelease(normalAmpRelease);
++  }
++
++  oscFreq = pitchToFreq(noteNumber, tuning);
++  pitchSlewLimiter.setState(oscFreq);
++  mainEnv.trigger();
++  ampEnv.noteOn(true);
++  idle = false;
++}
++
++void Open303::slideToNote(int noteNumber, bool hasAccent)
++{
++  oscFreq = pitchToFreq(noteNumber, tuning);
++
++  if( hasAccent )
++  {
++    accentGain = accent;
++    setMainEnvDecay(accentDecay);
++    ampEnv.setRelease(accentAmpRelease);
++  }
++  else
++  {
++    accentGain = 0.0;
++    setMainEnvDecay(normalDecay);
++    ampEnv.setRelease(normalAmpRelease);
++  }
++  idle = false;
++}
++
++void Open303::releaseNote(int noteNumber)
++{
++  // check if the note-list is empty now. if so, trigger a release, otherwise slide to the note
++  // at the beginning of the list (this is the most recent one which is still in the list). this
++  // initiates a slide back to the most recent note that is still being held:
 +  if( (noteCount == 0) )
-   {
-     ampEnv.noteOff();
-   }
++  {
++    ampEnv.noteOff();
++  }
++  else
++  {
++    // initiate slide back:
++    oscFreq     = pitchToFreq(currentNote);
++  }
++}
++
++void Open303::setMainEnvDecay(double newDecay)
++{
++  mainEnv.setDecayTimeConstant(newDecay);
++  updateNormalizer1();
++  updateNormalizer2();
++}
++
++void Open303::calculateEnvModScalerAndOffset()
++{
++  bool useMeasuredMapping = true; // might be shown as user parameter later
++  if( useMeasuredMapping == true )
++  {
++    // define some constants that arise from the measurements:
++    const double c0   = 3.138152786059267e+002;  // lowest nominal cutoff
++    const double c1   = 2.394411986817546e+003;  // highest nominal cutoff
++    const double oF   = 0.048292930943553;       // factor in line equation for offset
++    const double oC   = 0.294391201442418;       // constant in line equation for offset
++    const double sLoF = 3.773996325111173;       // factor in line eq. for scaler at low cutoff
++    const double sLoC = 0.736965594166206;       // constant in line eq. for scaler at low cutoff
++    const double sHiF = 4.194548788411135;       // factor in line eq. for scaler at high cutoff
++    const double sHiC = 0.864344900642434;       // constant in line eq. for scaler at high cutoff
++
++    // do the calculation of the scaler and offset:
++    double e   = linToLin(envMod, 0.0, 100.0, 0.0, 1.0);
++    double c   = expToLin(cutoff, c0,   c1,   0.0, 1.0);
++    double sLo = sLoF*e + sLoC;
++    double sHi = sHiF*e + sHiC;
++    envScaler  = (1-c)*sLo + c*sHi;
++    envOffset  =  oF*c + oC;
++  }
++  else
++  {
++    double upRatio   = pitchOffsetToFreqFactor(      envUpFraction *envMod);
++    double downRatio = pitchOffsetToFreqFactor(-(1.0-envUpFraction)*envMod);
++    envScaler        = upRatio - downRatio;
++    if( envScaler != 0.0 ) // avoid division by zero
++      envOffset = - (downRatio - 1.0) / (upRatio - downRatio);
++    else
++      envOffset = 0.0;
++  }
++}
++
++void Open303::updateNormalizer1()
++{
++  n1 = LeakyIntegrator::getNormalizer(mainEnv.getDecayTimeConstant(), rc1.getTimeConstant(),
++    sampleRate);
++  n1 = 1.0; // test
++}
++
++void Open303::updateNormalizer2()
++{
++  n2 = LeakyIntegrator::getNormalizer(mainEnv.getDecayTimeConstant(), rc2.getTimeConstant(),
++    sampleRate);
++  n2 = 1.0; // test
++}
 diff --git a/Source/DSPCode/rosic_Open303.h b/Source/DSPCode/rosic_Open303.h
-index f4ec6b4..e9ce75e 100644
+index f4ec6b4..d84769b 100644
 --- a/Source/DSPCode/rosic_Open303.h
 +++ b/Source/DSPCode/rosic_Open303.h
-@@ -11,7 +11,7 @@
- #include "rosic_EllipticQuarterBandFilter.h"
- #include "rosic_AcidSequencer.h"
- 
+@@ -1,411 +1,423 @@
+-#ifndef rosic_Open303_h
+-#define rosic_Open303_h
+-
+-#include "rosic_MidiNoteEvent.h"
+-#include "rosic_BlendOscillator.h"
+-#include "rosic_BiquadFilter.h"
+-#include "rosic_TeeBeeFilter.h"
+-#include "rosic_AnalogEnvelope.h"
+-#include "rosic_DecayEnvelope.h"
+-#include "rosic_LeakyIntegrator.h"
+-#include "rosic_EllipticQuarterBandFilter.h"
+-#include "rosic_AcidSequencer.h"
+-
 -#include <list>
-+// #include <list>  // Removed for embedded - using fixed array instead
- #include <limits>
- 
- namespace rosic
-@@ -41,8 +41,14 @@ namespace rosic
-     //-----------------------------------------------------------------------------------------------
-     // parameter settings:
- 
+-#include <limits>
+-
+-namespace rosic
+-{
+-
+-  /**
+-
+-  This is a monophonic bass-synth that aims to emulate the sound of the famous Roland TB 303 and
+-  goes a bit beyond.
+-
+-  */
+-
+-  class Open303
+-  {
+-
+-  public:
+-
+-    //-----------------------------------------------------------------------------------------------
+-    // construction/destruction:
+-
+-    /** Constructor. */
+-    Open303();
+-
+-    /** Destructor. */
+-    ~Open303();
+-
+-    //-----------------------------------------------------------------------------------------------
+-    // parameter settings:
+-
 -    /** Sets the sample-rate (in Hz). */
 -    void setSampleRate(double newSampleRate);
+-
+-    /** Sets up the waveform continuously between saw and square - the input should be in the range 
+-    0...1 where 0 means pure saw and 1 means pure square. */
+-    void setWaveform(double newWaveform) { oscillator.setBlendFactor(newWaveform); }
+-
+-    /** Sets the master tuning frequency for note A4 (usually 440 Hz). */
+-    void setTuning(double newTuning) { tuning = newTuning; }
+-
+-    /** Sets the filter's nominal cutoff frequency (in Hz). */
+-    void setCutoff(double newCutoff); 
+-
+-    /** Sets the resonance amount for the filter. */
+-    void setResonance(double newResonance) { filter.setResonance(newResonance); }
+-
+-    /** Sets the modulation depth of the filter's cutoff frequency by the filter-envelope generator 
+-    (in percent). */
+-    void setEnvMod(double newEnvMod);
+-
+-    /** Sets the main envelope's decay time for non-accented notes (in milliseconds). 
+-    Devil Fish provides range of 30...3000 ms for this parameter. On the normal 303, this 
+-    parameter had a range of 200...2000 ms.  */
+-    void setDecay(double newDecay) { normalDecay = newDecay; }
+-
+-    /** Sets the accent (in percent).  */
+-    void setAccent(double newAccent);
+-
+-    /** Sets the master volume level (in dB). */
+-    void setVolume(double newVolume);     
+-
+-    //  from here: parameter settings which were not available to the user in the 303:
+-
+-    /** Sets the amplitudes envelope's sustain level in decibels. Devil Fish uses the second half 
+-    of the range of the (amplitude) decay pot for this and lets the user adjust it between 0 
+-    and 100% of the full volume. In the normal 303, this parameter was fixed to zero. */
+-    void setAmpSustain(double newAmpSustain) { ampEnv.setSustainInDecibels(newAmpSustain); }
+-
+-    /** Sets the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, to 
+-    be scrapped eventually. */
+-    void setTanhShaperDrive(double newDrive) 
+-    { waveTable2.setTanhShaperDriveFor303Square(newDrive); }
+-
+-    /** Sets the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
+-    parameter, to be scrapped eventually. */
+-    void setTanhShaperOffset(double newOffset) 
+-    { waveTable2.setTanhShaperOffsetFor303Square(newOffset); }
+-
+-    /** Sets the cutoff frequency for the highpass before the main filter. */
+-    void setPreFilterHighpass(double newCutoff) { highpass1.setCutoff(newCutoff); }
+-
+-    /** Sets the cutoff frequency for the highpass inside the feedback loop of the main filter. */
+-    void setFeedbackHighpass(double newCutoff) { filter.setFeedbackHighpassCutoff(newCutoff); }
+-
+-    /** Sets the cutoff frequency for the highpass after the main filter. */
+-    void setPostFilterHighpass(double newCutoff) { highpass2.setCutoff(newCutoff); }
+-
+-    /** Sets the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
+-    - this is important when the two are mixed. */
+-    void setSquarePhaseShift(double newShift) { waveTable2.set303SquarePhaseShift(newShift); }
+-
+-    /** Sets the slide-time (in ms). The TB-303 had a slide time of 60 ms. */
+-    void setSlideTime(double newSlideTime);
+-
+-    /** Sets the filter envelope's attack time for non-accented notes (in milliseconds). 
+-    Devil Fish provides range of 0.3...30 ms for this parameter. */
+-    void setNormalAttack(double newNormalAttack) 
+-    { 
+-      normalAttack = newNormalAttack; 
+-      rc1.setTimeConstant(normalAttack);
+-    }
+-
+-    /** Sets the filter envelope's attack time for accented notes (in milliseconds). In the 
+-    Devil Fish, accented notes have a fixed attack time of 3 ms.  */
+-    void setAccentAttack(double newAccentAttack) 
+-    { 
+-      accentAttack = newAccentAttack; 
+-      rc2.setTimeConstant(accentAttack);
+-    }
+-
+-    /** Sets the filter envelope's decay time for accented notes (in milliseconds). 
+-    Devil Fish provides range of 30...3000 ms for this parameter. On the normal 303, this 
+-    parameter was fixed to 200 ms.  */
+-    void setAccentDecay(double newAccentDecay) { accentDecay = newAccentDecay; }
+-
+-    /** Sets the amplitudes envelope's decay time (in milliseconds). Devil Fish provides range of 
+-    16...3000 ms for this parameter. On the normal 303, this parameter was fixed to 
+-    approximately 3-4 seconds.  */
+-    void setAmpDecay(double newAmpDecay) { ampEnv.setDecay(newAmpDecay); }
+-
+-    /** Sets the amplitudes envelope's release time (in milliseconds). On the normal 303, this 
+-    parameter was fixed to .....  */
+-    void setAmpRelease(double newAmpRelease) 
+-    { 
+-      normalAmpRelease = newAmpRelease;
+-      ampEnv.setRelease(newAmpRelease); 
+-    }
+-
+-    //-----------------------------------------------------------------------------------------------
+-    // inquiry:
+-
+-    /** Returns the waveform as a continuous value between 0...1 where 0 means pure saw and 1 means 
+-    pure square. */
+-    double getWaveform() const { return oscillator.getBlendFactor(); }
+-
+-    /** Sets the master tuning frequency for note A4 (usually 440 Hz). */
+-    double getTuning() const { return tuning; }
+-
+-    /** Returns the filter's nominal cutoff frequency (in Hz). */
+-    double getCutoff() const { return cutoff; }
+-
+-    /** Returns the filter's resonance amount (in percent) */
+-    double getResonance() const { return filter.getResonance(); }
+-
+-    /** Returns the modulation depth of the filter's cutoff frequency by the filter-envelope 
+-    generator (in percent). */
+-    double getEnvMod() const { return envMod; }
+-
+-    /** Returns the filter envelope's decay time for non-accented notes (in milliseconds). */
+-    double getDecay() const { return normalDecay; }
+-
+-    /** Returns the accent (in percent). */
+-    double getAccent() const { return 100.0 * accent; }
+-
+-    /** Returns the master volume level (in dB). */
+-    double getVolume() const { return level; }
+-
+-    //  from here: parameters which were not available to the user in the 303:
+-
+-    /** Returns the amplitudes envelope's sustain level (in dB). */
+-    double getAmpSustain() const { return amp2dB(ampEnv.getSustain()); }
+-
+-    /** Returns the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, 
+-    to be scrapped eventually. */
+-    double getTanhShaperDrive() const 
+-    { return waveTable2.getTanhShaperDriveFor303Square(); }
+-
+-    /** Returns the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
+-    parameter, to be scrapped eventually. */   
+-    double getTanhShaperOffset() const 
+-    { return waveTable2.getTanhShaperOffsetFor303Square(); }
+-
+-    /** Returns the cutoff frequency for the highpass before the main filter. */
+-    double getPreFilterHighpass() const { return highpass1.getCutoff(); }
+-
+-    /** Retruns the cutoff frequency for the highpass inside the feedback loop of the main 
+-    filter. */
+-    double getFeedbackHighpass() const { return filter.getFeedbackHighpassCutoff(); }
+-
+-    /** Returns the cutoff frequency for the highpass after the main filter. */
+-    double getPostFilterHighpass() const { return highpass2.getCutoff(); }
+-
+-    /** Returns the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
+-    - this is important when the two are mixed. */
+-    double getSquarePhaseShift() const { return waveTable2.get303SquarePhaseShift(); }
+-
+-    /** Returns the slide-time (in ms). */
+-    double getSlideTime() const { return slideTime; }
+-
+-    /** Returns the filter envelope's attack time for non-accented notes (in milliseconds). */
+-    double getNormalAttack() const { return normalAttack; }
+-
+-    /** Returns the filter envelope's attack time for non-accented notes (in milliseconds). */
+-    double getAccentAttack() const { return accentAttack; }
+-
+-    /** Returns the filter envelope's decay time for non-accented notes (in milliseconds). */
+-    double getAccentDecay() const { return accentDecay; }
+-
+-    /** Returns the amplitudes envelope's decay time (in milliseconds). */
+-    double getAmpDecay() const { return ampEnv.getDecay(); }
+-
+-    /** Returns the amplitudes envelope's release time (in milliseconds). */
+-    double getAmpRelease() const { return normalAmpRelease; }
+-
+-    //-----------------------------------------------------------------------------------------------
+-    // audio processing:
+-
+-    /** Calculates onse output sample at a time. */
+-    double getSample(); 
+-
+-    //-----------------------------------------------------------------------------------------------
+-    // event handling:
+-
+-    /** Accepts note-on events (note offs are also handled here as note ons with velocity zero). */ 
+-    void noteOn(int noteNumber, int velocity);
+-    
+-    /** Turns all possibly running notes off. */
+-    void allNotesOff();
+-
+-    /** Sets the pitchbend value in semitones. */ 
+-    void setPitchBend(double newPitchBend);  
+-
+-    //-----------------------------------------------------------------------------------------------
+-    // embedded objects: 
+-
+-    MipMappedWaveTable        waveTable1, waveTable2;
+-    BlendOscillator           oscillator;
+-    TeeBeeFilter              filter;
+-    AnalogEnvelope            ampEnv; 
+-    DecayEnvelope             mainEnv;
+-    LeakyIntegrator           pitchSlewLimiter;
+-    //LeakyIntegrator           ampDeClicker;
+-    BiquadFilter              ampDeClicker;
+-    LeakyIntegrator           rc1, rc2;
+-    OnePoleFilter             highpass1, highpass2, allpass; 
+-    BiquadFilter              notch;
+-    EllipticQuarterBandFilter antiAliasFilter;
+-    AcidSequencer             sequencer;
+-
+-  protected:
+-
+-    /** Triggers a note (called either directly in noteOn or in getSample when the sequencer is 
+-    used). */
+-    void triggerNote(int noteNumber, bool hasAccent);
+-
+-    /** Slides to a note (called either directly in noteOn or in getSample when the sequencer is 
+-    used). */
+-    void slideToNote(int noteNumber, bool hasAccent);
+-
+-    /** Releases a note (called either directly in noteOn or in getSample when the sequencer is 
+-    used). */
+-    void releaseNote(int noteNumber);
+-
+-    /** Sets the decay-time of the main envelope and updates the normalizers n1, n2 accordingly. */
+-    void setMainEnvDecay(double newDecay);
+-
+-    void calculateEnvModScalerAndOffset();
+-
+-    /** Updates the normalizer n1 according to the time-constant of rc1 and the decay-time of the
+-    main envelope generator. */
+-    void updateNormalizer1();
+-
+-    /** Updates the normalizer n2 according to the time-constant of rc2 and the decay-time of the
+-    main envelope generator. */
+-    void updateNormalizer2();
+-
+-    static const int oversampling = 4;
+-
+-    double tuning;           // master tunung for A4 in Hz
+-    double ampScaler;        // final volume as raw factor
+-    double oscFreq;          // frequecy of the oscillator (without pitchbend)
+-    double sampleRate;       // the (non-oversampled) sample rate
+-    double level;            // master volume level (in dB)
+-    double levelByVel;       // velocity dependence of the level (in dB)
+-    double accent;           // scales all "byVel" parameters
+-    double slideTime;        // the time to slide from one note to another (in ms)
+-    double cutoff;           // nominal cutoff frequency of the filter
+-    double envMod;           // strength of the envelope modulation in percent
+-    double envUpFraction;    // fraction of the envelope that goes upward
+-    double envOffset;        // offset for the normalized envelope ('bipolarity' parameter)
+-    double envScaler;        // scale-factor for the normalized envelope (derived from envMod)
+-    double normalAttack;     // attack time for the filter envelope on non-accented notes
+-    double accentAttack;     // attack time for the filter envelope on accented notes
+-    double normalDecay;      // decay time for the filter envelope on non-accented notes
+-    double accentDecay;      // decay time for the filter envelope on accented notes
+-    double normalAmpRelease; // amp-env release time for non-accented notes
+-    double accentAmpRelease; // amp-env release time for accented notes
+-    double accentGain;       // between 0.0...1.0 - to scale the 3rd amp-envelope on accents
+-    double pitchWheelFactor; // scale factor for oscillator frequency from pitch-wheel
+-    double n1, n2;           // normalizers for the RCs that are driven by the MEG
+-    int    currentNote;      // note which is currently played (-1 if none)
+-    int    noteOffCountDown; // a countdown variable till next note-off in sequencer mode
+-    bool   slideToNextNote;  // indicate that we need to slide to the next note in sequencer mode
+-    bool   idle;             // flag to indicate that we have currently nothing to do in getSample
+-
+-    std::list<MidiNoteEvent> noteList;
+-
+-  };
+-
+-  //-------------------------------------------------------------------------------------------------
+-  // inlined functions:
+-
+-  inline double Open303::getSample()
+-  {
+-    //if( sequencer.getSequencerMode() == AcidSequencer::OFF && ampEnv.endIsReached() )
+-    //  return 0.0;
+-    if( idle )
+-      return 0.0;
+-
+-    // check the sequencer if we have some note to trigger:
+-    if( sequencer.getSequencerMode() != AcidSequencer::OFF )
+-    {
+-      noteOffCountDown--;
+-      if( noteOffCountDown == 0 || sequencer.isRunning() == false )
+-        releaseNote(currentNote);
+-
+-      AcidNote *note = sequencer.getNote();
+-      if( note != NULL )
+-      {
+-        if( note->gate == true && currentNote != -1)
+-        {
+-          int key = note->key + 12*note->octave + currentNote;
+-          key = clip(key, 0, 127);
+-
+-          if( !slideToNextNote )
+-            triggerNote(key, note->accent);
+-          else
+-            slideToNote(key, note->accent);
+-
+-          AcidNote* nextNote = sequencer.getNextScheduledNote();
+-          if( note->slide && nextNote->gate == true )
+-          {
+-            noteOffCountDown = std::numeric_limits<int>::max();
+-            slideToNextNote  = true;
+-          }
+-          else
+-          {
+-            noteOffCountDown = sequencer.getStepLengthInSamples();
+-            slideToNextNote  = false;
+-          }
+-        }
+-      }
+-    }
+-
+-    // calculate instantaneous oscillator frequency and set up the oscillator:
+-    double instFreq = pitchSlewLimiter.getSample(oscFreq);
+-    oscillator.setFrequency(instFreq*pitchWheelFactor);
+-    oscillator.calculateIncrement();
+-
+-    // calculate instantaneous cutoff frequency from the nominal cutoff and all its modifiers and 
+-    // set up the filter:
+-    double mainEnvOut = mainEnv.getSample();
+-    double tmp1       = n1 * rc1.getSample(mainEnvOut);
+-    double tmp2       = 0.0;
+-    if( accentGain > 0.0 )
+-      tmp2 = mainEnvOut;
+-    tmp2 = n2 * rc2.getSample(tmp2);  
+-    tmp1 = envScaler * ( tmp1 - envOffset );  // seems not to work yet
+-    tmp2 = accentGain*tmp2;
+-    double instCutoff = cutoff * pow(2.0, tmp1+tmp2);
+-    filter.setCutoff(instCutoff);
+-
+-    double ampEnvOut = ampEnv.getSample();
+-    //ampEnvOut += 0.45*filterEnvOut + accentGain*6.8*filterEnvOut; 
+-    if( ampEnv.isNoteOn() )
+-      ampEnvOut += (0.45 + 4 * accentGain) * mainEnvOut; 
+-    ampEnvOut = ampDeClicker.getSample(ampEnvOut);
+-
+-    // oversampled calculations:
+-    double tmp;
+-    for(int i=1; i<=oversampling; i++)
+-    {
+-      tmp  = -oscillator.getSample();         // the raw oscillator signal 
+-      tmp  = highpass1.getSample(tmp);        // pre-filter highpass
+-      tmp  = filter.getSample(tmp);           // now it's filtered
+-      tmp  = antiAliasFilter.getSample(tmp);  // anti-aliasing filtered
+-
+-    }
+-
+-    // these filters may actually operate without oversampling (but only if we reset them in
+-    // triggerNote - avoid clicks)
+-    tmp  = allpass.getSample(tmp);
+-    tmp  = highpass2.getSample(tmp);        
+-    tmp  = notch.getSample(tmp);
+-    tmp *= ampEnvOut;                       // amplified
+-    tmp *= ampScaler;
+-
+-    // find out whether we may switch ourselves off for the next call:
+-    idle = false;
+-    //idle = (sequencer.getSequencerMode() == AcidSequencer::OFF && ampEnv.endIsReached() 
+-    //        && fabs(tmp) < 0.000001); // ampEnvOut < 0.000001;
+-
+-    return tmp;
+-  }
+-
+-}
+-
+-#endif 
++#ifndef rosic_Open303_h
++#define rosic_Open303_h
++
++#include "rosic_MidiNoteEvent.h"
++#include "rosic_BlendOscillator.h"
++#include "rosic_BiquadFilter.h"
++#include "rosic_TeeBeeFilter.h"
++#include "rosic_AnalogEnvelope.h"
++#include "rosic_DecayEnvelope.h"
++#include "rosic_LeakyIntegrator.h"
++#include "rosic_EllipticQuarterBandFilter.h"
++#include "rosic_AcidSequencer.h"
++
++// #include <list>  // Removed for embedded - using fixed array instead
++#include <limits>
++
++namespace rosic
++{
++
++  /**
++
++  This is a monophonic bass-synth that aims to emulate the sound of the famous Roland TB 303 and
++  goes a bit beyond.
++
++  */
++
++  class Open303
++  {
++
++  public:
++
++    //-----------------------------------------------------------------------------------------------
++    // construction/destruction:
++
++    /** Constructor. */
++    Open303();
++
++    /** Destructor. */
++    ~Open303();
++
++    //-----------------------------------------------------------------------------------------------
++    // parameter settings:
++
 +    /** Sets the sample-rate (in Hz). */
 +    void setSampleRate(double newSampleRate);
 +
@@ -551,27 +3261,375 @@ index f4ec6b4..e9ce75e 100644
 +
 +    /** Gets the current oversampling factor. */
 +    int getOversampling() const { return oversampling; }
- 
-     /** Sets up the waveform continuously between saw and square - the input should be in the range 
-     0...1 where 0 means pure saw and 1 means pure square. */
-@@ -277,7 +283,7 @@ namespace rosic
-     main envelope generator. */
-     void updateNormalizer2();
- 
--    static const int oversampling = 4;
++
++    /** Sets up the waveform continuously between saw and square - the input should be in the range 
++    0...1 where 0 means pure saw and 1 means pure square. */
++    void setWaveform(double newWaveform) { oscillator.setBlendFactor(newWaveform); }
++
++    /** Sets the master tuning frequency for note A4 (usually 440 Hz). */
++    void setTuning(double newTuning) { tuning = newTuning; }
++
++    /** Sets the filter's nominal cutoff frequency (in Hz). */
++    void setCutoff(double newCutoff); 
++
++    /** Sets the resonance amount for the filter. */
++    void setResonance(double newResonance) { filter.setResonance(newResonance); }
++
++    /** Sets the modulation depth of the filter's cutoff frequency by the filter-envelope generator 
++    (in percent). */
++    void setEnvMod(double newEnvMod);
++
++    /** Sets the main envelope's decay time for non-accented notes (in milliseconds). 
++    Devil Fish provides range of 30...3000 ms for this parameter. On the normal 303, this 
++    parameter had a range of 200...2000 ms.  */
++    void setDecay(double newDecay) { normalDecay = newDecay; }
++
++    /** Sets the accent (in percent).  */
++    void setAccent(double newAccent);
++
++    /** Sets the master volume level (in dB). */
++    void setVolume(double newVolume);     
++
++    //  from here: parameter settings which were not available to the user in the 303:
++
++    /** Sets the amplitudes envelope's sustain level in decibels. Devil Fish uses the second half 
++    of the range of the (amplitude) decay pot for this and lets the user adjust it between 0 
++    and 100% of the full volume. In the normal 303, this parameter was fixed to zero. */
++    void setAmpSustain(double newAmpSustain) { ampEnv.setSustainInDecibels(newAmpSustain); }
++
++    /** Sets the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, to 
++    be scrapped eventually. */
++    void setTanhShaperDrive(double newDrive) 
++    { waveTable2.setTanhShaperDriveFor303Square(newDrive); }
++
++    /** Sets the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
++    parameter, to be scrapped eventually. */
++    void setTanhShaperOffset(double newOffset) 
++    { waveTable2.setTanhShaperOffsetFor303Square(newOffset); }
++
++    /** Sets the cutoff frequency for the highpass before the main filter. */
++    void setPreFilterHighpass(double newCutoff) { highpass1.setCutoff(newCutoff); }
++
++    /** Sets the cutoff frequency for the highpass inside the feedback loop of the main filter. */
++    void setFeedbackHighpass(double newCutoff) { filter.setFeedbackHighpassCutoff(newCutoff); }
++
++    /** Sets the cutoff frequency for the highpass after the main filter. */
++    void setPostFilterHighpass(double newCutoff) { highpass2.setCutoff(newCutoff); }
++
++    /** Sets the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
++    - this is important when the two are mixed. */
++    void setSquarePhaseShift(double newShift) { waveTable2.set303SquarePhaseShift(newShift); }
++
++    /** Sets the slide-time (in ms). The TB-303 had a slide time of 60 ms. */
++    void setSlideTime(double newSlideTime);
++
++    /** Sets the filter envelope's attack time for non-accented notes (in milliseconds). 
++    Devil Fish provides range of 0.3...30 ms for this parameter. */
++    void setNormalAttack(double newNormalAttack) 
++    { 
++      normalAttack = newNormalAttack; 
++      rc1.setTimeConstant(normalAttack);
++    }
++
++    /** Sets the filter envelope's attack time for accented notes (in milliseconds). In the 
++    Devil Fish, accented notes have a fixed attack time of 3 ms.  */
++    void setAccentAttack(double newAccentAttack) 
++    { 
++      accentAttack = newAccentAttack; 
++      rc2.setTimeConstant(accentAttack);
++    }
++
++    /** Sets the filter envelope's decay time for accented notes (in milliseconds). 
++    Devil Fish provides range of 30...3000 ms for this parameter. On the normal 303, this 
++    parameter was fixed to 200 ms.  */
++    void setAccentDecay(double newAccentDecay) { accentDecay = newAccentDecay; }
++
++    /** Sets the amplitudes envelope's decay time (in milliseconds). Devil Fish provides range of 
++    16...3000 ms for this parameter. On the normal 303, this parameter was fixed to 
++    approximately 3-4 seconds.  */
++    void setAmpDecay(double newAmpDecay) { ampEnv.setDecay(newAmpDecay); }
++
++    /** Sets the amplitudes envelope's release time (in milliseconds). On the normal 303, this 
++    parameter was fixed to .....  */
++    void setAmpRelease(double newAmpRelease) 
++    { 
++      normalAmpRelease = newAmpRelease;
++      ampEnv.setRelease(newAmpRelease); 
++    }
++
++    //-----------------------------------------------------------------------------------------------
++    // inquiry:
++
++    /** Returns the waveform as a continuous value between 0...1 where 0 means pure saw and 1 means 
++    pure square. */
++    double getWaveform() const { return oscillator.getBlendFactor(); }
++
++    /** Sets the master tuning frequency for note A4 (usually 440 Hz). */
++    double getTuning() const { return tuning; }
++
++    /** Returns the filter's nominal cutoff frequency (in Hz). */
++    double getCutoff() const { return cutoff; }
++
++    /** Returns the filter's resonance amount (in percent) */
++    double getResonance() const { return filter.getResonance(); }
++
++    /** Returns the modulation depth of the filter's cutoff frequency by the filter-envelope 
++    generator (in percent). */
++    double getEnvMod() const { return envMod; }
++
++    /** Returns the filter envelope's decay time for non-accented notes (in milliseconds). */
++    double getDecay() const { return normalDecay; }
++
++    /** Returns the accent (in percent). */
++    double getAccent() const { return 100.0 * accent; }
++
++    /** Returns the master volume level (in dB). */
++    double getVolume() const { return level; }
++
++    //  from here: parameters which were not available to the user in the 303:
++
++    /** Returns the amplitudes envelope's sustain level (in dB). */
++    double getAmpSustain() const { return amp2dB(ampEnv.getSustain()); }
++
++    /** Returns the drive (in dB) for the tanh-shaper for 303-square waveform - internal parameter, 
++    to be scrapped eventually. */
++    double getTanhShaperDrive() const 
++    { return waveTable2.getTanhShaperDriveFor303Square(); }
++
++    /** Returns the offset (as raw value for the tanh-shaper for 303-square waveform - internal 
++    parameter, to be scrapped eventually. */   
++    double getTanhShaperOffset() const 
++    { return waveTable2.getTanhShaperOffsetFor303Square(); }
++
++    /** Returns the cutoff frequency for the highpass before the main filter. */
++    double getPreFilterHighpass() const { return highpass1.getCutoff(); }
++
++    /** Retruns the cutoff frequency for the highpass inside the feedback loop of the main 
++    filter. */
++    double getFeedbackHighpass() const { return filter.getFeedbackHighpassCutoff(); }
++
++    /** Returns the cutoff frequency for the highpass after the main filter. */
++    double getPostFilterHighpass() const { return highpass2.getCutoff(); }
++
++    /** Returns the phase shift of tanh-shaped square wave with respect to the saw-wave (in degrees)
++    - this is important when the two are mixed. */
++    double getSquarePhaseShift() const { return waveTable2.get303SquarePhaseShift(); }
++
++    /** Returns the slide-time (in ms). */
++    double getSlideTime() const { return slideTime; }
++
++    /** Returns the filter envelope's attack time for non-accented notes (in milliseconds). */
++    double getNormalAttack() const { return normalAttack; }
++
++    /** Returns the filter envelope's attack time for non-accented notes (in milliseconds). */
++    double getAccentAttack() const { return accentAttack; }
++
++    /** Returns the filter envelope's decay time for non-accented notes (in milliseconds). */
++    double getAccentDecay() const { return accentDecay; }
++
++    /** Returns the amplitudes envelope's decay time (in milliseconds). */
++    double getAmpDecay() const { return ampEnv.getDecay(); }
++
++    /** Returns the amplitudes envelope's release time (in milliseconds). */
++    double getAmpRelease() const { return normalAmpRelease; }
++
++    //-----------------------------------------------------------------------------------------------
++    // audio processing:
++
++    /** Calculates onse output sample at a time. */
++    double getSample(); 
++
++    //-----------------------------------------------------------------------------------------------
++    // event handling:
++
++    /** Accepts note-on events (note offs are also handled here as note ons with velocity zero). */ 
++    void noteOn(int noteNumber, int velocity);
++    
++    /** Turns all possibly running notes off. */
++    void allNotesOff();
++
++    /** Sets the pitchbend value in semitones. */ 
++    void setPitchBend(double newPitchBend);  
++
++    void setOscillatorFrequency(double newFrequency);
++    void setAccentGain(double newAccentGain);
++
++    //-----------------------------------------------------------------------------------------------
++    // embedded objects: 
++
++    MipMappedWaveTable        waveTable1, waveTable2;
++    BlendOscillator           oscillator;
++    TeeBeeFilter              filter;
++    AnalogEnvelope            ampEnv; 
++    DecayEnvelope             mainEnv;
++    LeakyIntegrator           pitchSlewLimiter;
++    //LeakyIntegrator           ampDeClicker;
++    BiquadFilter              ampDeClicker;
++    LeakyIntegrator           rc1, rc2;
++    OnePoleFilter             highpass1, highpass2, allpass; 
++    BiquadFilter              notch;
++    EllipticQuarterBandFilter antiAliasFilter;
++    AcidSequencer             sequencer;
++
++  protected:
++
++    /** Triggers a note (called either directly in noteOn or in getSample when the sequencer is 
++    used). */
++    void triggerNote(int noteNumber, bool hasAccent);
++
++    /** Slides to a note (called either directly in noteOn or in getSample when the sequencer is 
++    used). */
++    void slideToNote(int noteNumber, bool hasAccent);
++
++    /** Releases a note (called either directly in noteOn or in getSample when the sequencer is 
++    used). */
++    void releaseNote(int noteNumber);
++
++    /** Sets the decay-time of the main envelope and updates the normalizers n1, n2 accordingly. */
++    void setMainEnvDecay(double newDecay);
++
++    void calculateEnvModScalerAndOffset();
++
++    /** Updates the normalizer n1 according to the time-constant of rc1 and the decay-time of the
++    main envelope generator. */
++    void updateNormalizer1();
++
++    /** Updates the normalizer n2 according to the time-constant of rc2 and the decay-time of the
++    main envelope generator. */
++    void updateNormalizer2();
++
 +    int oversampling;
- 
-     double tuning;           // master tunung for A4 in Hz
-     double ampScaler;        // final volume as raw factor
-@@ -306,7 +312,10 @@ namespace rosic
-     bool   slideToNextNote;  // indicate that we need to slide to the next note in sequencer mode
-     bool   idle;             // flag to indicate that we have currently nothing to do in getSample
- 
--    std::list<MidiNoteEvent> noteList;
++
++    double tuning;           // master tunung for A4 in Hz
++    double ampScaler;        // final volume as raw factor
++    double oscFreq;          // frequecy of the oscillator (without pitchbend)
++    double sampleRate;       // the (non-oversampled) sample rate
++    double level;            // master volume level (in dB)
++    double levelByVel;       // velocity dependence of the level (in dB)
++    double accent;           // scales all "byVel" parameters
++    double slideTime;        // the time to slide from one note to another (in ms)
++    double cutoff;           // nominal cutoff frequency of the filter
++    double envMod;           // strength of the envelope modulation in percent
++    double envUpFraction;    // fraction of the envelope that goes upward
++    double envOffset;        // offset for the normalized envelope ('bipolarity' parameter)
++    double envScaler;        // scale-factor for the normalized envelope (derived from envMod)
++    double normalAttack;     // attack time for the filter envelope on non-accented notes
++    double accentAttack;     // attack time for the filter envelope on accented notes
++    double normalDecay;      // decay time for the filter envelope on non-accented notes
++    double accentDecay;      // decay time for the filter envelope on accented notes
++    double normalAmpRelease; // amp-env release time for non-accented notes
++    double accentAmpRelease; // amp-env release time for accented notes
++    double accentGain;       // between 0.0...1.0 - to scale the 3rd amp-envelope on accents
++    double pitchWheelFactor; // scale factor for oscillator frequency from pitch-wheel
++    double n1, n2;           // normalizers for the RCs that are driven by the MEG
++    int    currentNote;      // note which is currently played (-1 if none)
++    int    noteOffCountDown; // a countdown variable till next note-off in sequencer mode
++    bool   slideToNextNote;  // indicate that we need to slide to the next note in sequencer mode
++    bool   idle;             // flag to indicate that we have currently nothing to do in getSample
++
 +    // Fixed-size note buffer (replaces std::list for embedded use)
 +    static const int MAX_NOTES = 8;
 +    MidiNoteEvent noteBuffer[MAX_NOTES];
 +    int noteCount;
- 
-   };
- 
++
++  };
++
++  //-------------------------------------------------------------------------------------------------
++  // inlined functions:
++
++  inline double Open303::getSample()
++  {
++    //if( sequencer.getSequencerMode() == AcidSequencer::OFF && ampEnv.endIsReached() )
++    //  return 0.0;
++    if( idle )
++      return 0.0;
++
++    // check the sequencer if we have some note to trigger:
++    if( sequencer.getSequencerMode() != AcidSequencer::OFF )
++    {
++      noteOffCountDown--;
++      if( noteOffCountDown == 0 || sequencer.isRunning() == false )
++        releaseNote(currentNote);
++
++      AcidNote *note = sequencer.getNote();
++      if( note != NULL )
++      {
++        if( note->gate == true && currentNote != -1)
++        {
++          int key = note->key + 12*note->octave + currentNote;
++          key = clip(key, 0, 127);
++
++          if( !slideToNextNote )
++            triggerNote(key, note->accent);
++          else
++            slideToNote(key, note->accent);
++
++          AcidNote* nextNote = sequencer.getNextScheduledNote();
++          if( note->slide && nextNote->gate == true )
++          {
++            noteOffCountDown = std::numeric_limits<int>::max();
++            slideToNextNote  = true;
++          }
++          else
++          {
++            noteOffCountDown = sequencer.getStepLengthInSamples();
++            slideToNextNote  = false;
++          }
++        }
++      }
++    }
++
++    // calculate instantaneous oscillator frequency and set up the oscillator:
++    double instFreq = pitchSlewLimiter.getSample(oscFreq);
++    oscillator.setFrequency(instFreq*pitchWheelFactor);
++    oscillator.calculateIncrement();
++
++    // calculate instantaneous cutoff frequency from the nominal cutoff and all its modifiers and 
++    // set up the filter:
++    double mainEnvOut = mainEnv.getSample();
++    double tmp1       = n1 * rc1.getSample(mainEnvOut);
++    double tmp2       = 0.0;
++    if( accentGain > 0.0 )
++      tmp2 = mainEnvOut;
++    tmp2 = n2 * rc2.getSample(tmp2);  
++    tmp1 = envScaler * ( tmp1 - envOffset );  // seems not to work yet
++    tmp2 = accentGain*tmp2;
++    double instCutoff = cutoff * pow(2.0, tmp1+tmp2);
++    filter.setCutoff(instCutoff);
++
++    double ampEnvOut = ampEnv.getSample();
++    //ampEnvOut += 0.45*filterEnvOut + accentGain*6.8*filterEnvOut; 
++    if( ampEnv.isNoteOn() )
++      ampEnvOut += (0.45 + 4 * accentGain) * mainEnvOut; 
++    ampEnvOut = ampDeClicker.getSample(ampEnvOut);
++
++    // oversampled calculations:
++    double tmp;
++    for(int i=1; i<=oversampling; i++)
++    {
++      tmp  = -oscillator.getSample();         // the raw oscillator signal 
++      tmp  = highpass1.getSample(tmp);        // pre-filter highpass
++      tmp  = filter.getSample(tmp);           // now it's filtered
++      tmp  = antiAliasFilter.getSample(tmp);  // anti-aliasing filtered
++
++    }
++
++    // these filters may actually operate without oversampling (but only if we reset them in
++    // triggerNote - avoid clicks)
++    tmp  = allpass.getSample(tmp);
++    tmp  = highpass2.getSample(tmp);        
++    tmp  = notch.getSample(tmp);
++    tmp *= ampEnvOut;                       // amplified
++    tmp *= ampScaler;
++
++    // find out whether we may switch ourselves off for the next call:
++    idle = false;
++    //idle = (sequencer.getSequencerMode() == AcidSequencer::OFF && ampEnv.endIsReached() 
++    //        && fabs(tmp) < 0.000001); // ampEnvOut < 0.000001;
++
++    return tmp;
++  }
++
++}
++
++#endif 

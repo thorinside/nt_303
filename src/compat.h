@@ -24,4 +24,8 @@ inline float midiNoteToFreq(int note, float tuning = 440.0f) {
     return tuning * std::pow(2.0f, (note - 69) / 12.0f);
 }
 
+inline float cvToFreq(float cv, float tuning = 440.0f) {
+    return tuning * std::pow(2.0f, (cv * 12.0f - 9.0f) / 12.0f);
+}
+
 #endif

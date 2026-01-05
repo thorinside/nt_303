@@ -107,6 +107,9 @@ $(BUILD_DIR)/%.o: %.c
 hardware:
 	@$(MAKE) TARGET=hardware
 
+push: hardware
+	ntpush $(OUTPUT_DIR)/$(PLUGIN_NAME).o
+
 test:
 	@$(MAKE) TARGET=test
 
@@ -129,10 +132,11 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  hardware  - Build for distingNT hardware (.o)"
+	@echo "  push      - Build and push to distingNT via USB"
 	@echo "  test      - Build for nt_emu testing (.dylib/.so)"
 	@echo "  both      - Build both targets"
 	@echo "  check     - Check undefined symbols"
 	@echo "  size      - Show plugin size"
 	@echo "  clean     - Remove build artifacts"
 
-.PHONY: all hardware test both check size clean help
+.PHONY: all hardware push test both check size clean help

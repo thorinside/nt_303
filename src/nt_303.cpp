@@ -80,6 +80,9 @@ namespace {
 
 void* operator new(size_t size) {
     void* p = heapAlloc(size);
+    if (!p) {
+        while(1) {}
+    }
     return p;
 }
 
@@ -187,11 +190,7 @@ static const _NT_parameterPages parameterPages = {
 void calculateRequirements(_NT_algorithmRequirements& req, const int32_t* specifications) {
     req.numParameters = ARRAY_SIZE(parameters);
     req.sram = sizeof(_NT303Algorithm);
-#ifndef NT_TEST_BUILD
     req.dram = DRAM_HEAP_SIZE;
-#else
-    req.dram = 0;
-#endif
     req.dtc = 0;
     req.itc = 0;
 }
@@ -199,9 +198,8 @@ void calculateRequirements(_NT_algorithmRequirements& req, const int32_t* specif
 _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
                          const _NT_algorithmRequirements& req,
                          const int32_t* specifications) {
-#ifndef NT_TEST_BUILD
-    initHeap(ptrs.dram, req.dram);
-#endif
+    initHeap(ptrs.dram, DRAM_HEAP_SIZE);
+    
     _NT303Algorithm* alg = new (ptrs.sram) _NT303Algorithm();
     
     alg->parameters = parameters;

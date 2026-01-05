@@ -4,6 +4,9 @@ TARGET ?= hardware
 PLUGIN_NAME = nt_303
 
 OPEN303_DIR = open303/Source/DSPCode
+PATCH_DIR = patches
+PATCH_MARKER = $(OPEN303_DIR)/.patched
+
 OPEN303_SOURCES = \
     $(OPEN303_DIR)/rosic_Open303.cpp \
     $(OPEN303_DIR)/rosic_TeeBeeFilter.cpp \
@@ -89,7 +92,18 @@ CPP_SOURCES = $(filter %.cpp,$(SOURCES))
 C_SOURCES = $(filter %.c,$(SOURCES))
 OBJECTS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CPP_SOURCES)) $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
 
-all: $(OUTPUT)
+.DEFAULT_GOAL := all
+
+all: $(PATCH_MARKER) $(OUTPUT)
+
+$(PATCH_MARKER):
+	@for p in $(PATCH_DIR)/*.patch; do \
+		if [ -f "$$p" ]; then \
+			echo "Applying $$p..."; \
+			(cd open303 && git apply --check ../$$p 2>/dev/null && git apply ../$$p) || echo "  (already applied)"; \
+		fi; \
+	done
+	@touch $(PATCH_MARKER)
 
 $(OUTPUT): $(OBJECTS)
 	@mkdir -p $(OUTPUT_DIR)
@@ -118,6 +132,19 @@ both: hardware test
 check: $(OUTPUT)
 	@echo "Checking symbols in $(OUTPUT)..."
 	@$(CHECK_CMD) || true
+	@echo "(Only _NT_* plus memcpy/memmove/memset should remain undefined.)"
+ifeq ($(TARGET),hardware)
+	@echo ""
+	@echo "Checking .bss footprint..."
+	@bss=$$(arm-none-eabi-size -B $(OUTPUT) | awk 'NR==2 {print $$3}'); \
+		printf ".bss size = %s bytes\n" "$$bss"; \
+		if [ "$$bss" -gt 8192 ]; then \
+			echo "❌  .bss exceeds 8 KiB limit! Loader will reject the plug-in."; \
+			exit 1; \
+		else \
+			echo "✅  .bss within limit."; \
+		fi
+endif
 
 size: $(OUTPUT)
 	@echo "Size of $(OUTPUT):"

@@ -140,6 +140,8 @@ struct _NT303Algorithm : public _NT_algorithm {
     float smoothCutoff;
     float smoothResonance;
     float smoothDecay;
+    
+    float lastSampleRate;
 };
 
 static char const * const enumStringsOversampling[] = { "1x", "2x", "4x" };
@@ -211,6 +213,7 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
     alg->parameterPages = &parameterPages;
     
     alg->synth.setSampleRate(NT_globals.sampleRate);
+    alg->lastSampleRate = NT_globals.sampleRate;
     
     alg->prevGate = false;
     alg->cvNoteActive = false;
@@ -278,6 +281,11 @@ void parameterChanged(_NT_algorithm* self, int p) {
 void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
     _NT303Algorithm* pThis = (_NT303Algorithm*)self;
     int numFrames = numFramesBy4 * 4;
+    
+    if (NT_globals.sampleRate != pThis->lastSampleRate) {
+        pThis->synth.setSampleRate(NT_globals.sampleRate);
+        pThis->lastSampleRate = NT_globals.sampleRate;
+    }
     
     const float* pitchCV = nullptr;
     const float* gateCV = nullptr;

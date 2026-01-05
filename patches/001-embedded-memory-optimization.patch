@@ -389,7 +389,7 @@ index f6a3f64..5fc4627 100644
  
    };
 diff --git a/Source/DSPCode/rosic_Open303.cpp b/Source/DSPCode/rosic_Open303.cpp
-index 1ef8ac7..576586a 100644
+index 1ef8ac7..c2ce845 100644
 --- a/Source/DSPCode/rosic_Open303.cpp
 +++ b/Source/DSPCode/rosic_Open303.cpp
 @@ -5,12 +5,13 @@ using namespace rosic;
@@ -412,7 +412,21 @@ index 1ef8ac7..576586a 100644
    level            =   -12.0;
    levelByVel       =    12.0;
    accent           =     0.0;
-@@ -97,11 +98,25 @@ void Open303::setSampleRate(double newSampleRate)
+@@ -81,9 +82,10 @@ Open303::~Open303()
+ //-------------------------------------------------------------------------------------------------
+ // parameter settings:
+ 
+-void Open303::setSampleRate(double newSampleRate)
+-{
+-  mainEnv.setSampleRate         (       newSampleRate);
++void Open303::setSampleRate(double newSampleRate)
++{
++  sampleRate = newSampleRate;
++  mainEnv.setSampleRate         (       newSampleRate);
+   ampEnv.setSampleRate          (       newSampleRate);
+   pitchSlewLimiter.setSampleRate((float)newSampleRate);
+   ampDeClicker.setSampleRate(    (float)newSampleRate);
+@@ -97,11 +99,25 @@ void Open303::setSampleRate(double newSampleRate)
  
    highpass1.setSampleRate     (  oversampling*newSampleRate);
  
@@ -443,7 +457,7 @@ index 1ef8ac7..576586a 100644
  {
    cutoff = newCutoff;
    calculateEnvModScalerAndOffset();
-@@ -168,14 +183,22 @@ void Open303::noteOn(int noteNumber, int velocity)
+@@ -168,14 +184,22 @@ void Open303::noteOn(int noteNumber, int velocity)
    if( velocity == 0 ) // velocity zero indicates note-off events
    {
      MidiNoteEvent releasedNote(noteNumber, 0);
@@ -469,7 +483,7 @@ index 1ef8ac7..576586a 100644
      }
      releaseNote(noteNumber);
    }
-@@ -183,7 +206,7 @@ void Open303::noteOn(int noteNumber, int velocity)
+@@ -183,7 +207,7 @@ void Open303::noteOn(int noteNumber, int velocity)
    {
      // check if the note-list is empty (indicating that currently no note is playing) - if so,
      // trigger a new note, otherwise, slide to the new note:
@@ -478,7 +492,7 @@ index 1ef8ac7..576586a 100644
        triggerNote(noteNumber, velocity >= 100);
      else
        slideToNote(noteNumber, velocity >= 100);
-@@ -192,14 +215,20 @@ void Open303::noteOn(int noteNumber, int velocity)
+@@ -192,14 +216,20 @@ void Open303::noteOn(int noteNumber, int velocity)
  
      // and we need to add the new note to our list, of course:
      MidiNoteEvent newNote(noteNumber, velocity);
@@ -501,7 +515,7 @@ index 1ef8ac7..576586a 100644
    ampEnv.noteOff();
    currentNote = -1;
  }
-@@ -263,7 +292,7 @@ void Open303::releaseNote(int noteNumber)
+@@ -263,7 +293,7 @@ void Open303::releaseNote(int noteNumber)
    // check if the note-list is empty now. if so, trigger a release, otherwise slide to the note
    // at the beginning of the list (this is the most recent one which is still in the list). this
    // initiates a slide back to the most recent note that is still being held:

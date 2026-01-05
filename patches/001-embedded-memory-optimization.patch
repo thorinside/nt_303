@@ -1,0 +1,486 @@
+diff --git a/Source/DSPCode/rosic_FourierTransformerRadix2.cpp b/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
+index 61a1f12..0e954f6 100644
+--- a/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
++++ b/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
+@@ -5,64 +5,60 @@ using namespace rosic;
+ //-------------------------------------------------------------------------------------------------
+ // construction/destruction:
+ 
+-FourierTransformerRadix2::FourierTransformerRadix2()
+-{
+-  N                   = 0;
+-  logN                = 0;
+-  direction           = FORWARD;
+-  normalizationMode   = NORMALIZE_ON_INVERSE_TRAFO;
+-  normalizationFactor = 1.0;
+-  w                   = NULL;
+-  ip                  = NULL;
+-  tmpBuffer           = NULL;
+-
+-  setBlockSize(256);
+-}
+-
+-FourierTransformerRadix2::~FourierTransformerRadix2()
+-{
+-  // free dynamically allocated memory:
+-  if( w != NULL )
+-    delete[] w;
+-  if( ip != NULL )
+-    delete[] ip;
+-  if( tmpBuffer != NULL )
+-    delete[] tmpBuffer;
+-}
+-
+-//-------------------------------------------------------------------------------------------------
+-// parameter settings:
+-
+-void FourierTransformerRadix2::setBlockSize(int newBlockSize)
+-{
+-  // check new blocksize for validity:
+-  if( newBlockSize >= 2 && isPowerOfTwo(newBlockSize) )
+-  {
+-    // check, if the new blocksize is actually different from the old one in order to avoid 
+-    // unnecesarry re-allocations and re-computations:
+-    if( newBlockSize != N )
+-    {
+-      N    = newBlockSize;
+-      logN = (int) floor( log2((double) N + 0.5 ) );
+-      updateNormalizationFactor();
+-
+-      if( w != NULL )
+-        delete[] w;
+-      w    = new double[2*N];
+-
+-      if( ip != NULL )
+-        delete[] ip;
+-      ip    = new int[(int) ceil(4.0+sqrt((double)N))];
+-      ip[0] = 0; // indicate that re-initialization is necesarry
+-
+-      if( tmpBuffer != NULL )
+-        delete[] tmpBuffer;
+-      tmpBuffer = new Complex[N];
+-    }
+-  }
+-  else if( !isPowerOfTwo(newBlockSize) || newBlockSize <= 1 )
+-    DEBUG_BREAK; // this class can only deal with blocksizes >= 2 that are a power of two
+-}
++FourierTransformerRadix2::FourierTransformerRadix2()
++{
++  N                   = 0;
++  logN                = 0;
++  direction           = FORWARD;
++  normalizationMode   = NORMALIZE_ON_INVERSE_TRAFO;
++  normalizationFactor = 1.0;
++  w                   = NULL;
++  ip                  = NULL;
++  tmpBuffer           = NULL;
++
++  setBlockSize(256);
++}
++
++FourierTransformerRadix2::~FourierTransformerRadix2()
++{
++  if( w != NULL )
++    delete[] w;
++  if( ip != NULL )
++    delete[] ip;
++  if( tmpBuffer != NULL )
++    delete[] tmpBuffer;
++}
++
++//-------------------------------------------------------------------------------------------------
++// parameter settings:
++
++void FourierTransformerRadix2::setBlockSize(int newBlockSize)
++{
++  if( newBlockSize >= 2 && isPowerOfTwo(newBlockSize) )
++  {
++    if( newBlockSize != N )
++    {
++      N    = newBlockSize;
++      logN = (int) floor( log2((double) N + 0.5 ) );
++      updateNormalizationFactor();
++
++      if( w != NULL )
++        delete[] w;
++      w = new double[2*N];
++
++      if( ip != NULL )
++        delete[] ip;
++      ip = new int[(int) ceil(4.0+sqrt((double)N))];
++      ip[0] = 0;
++
++      if( tmpBuffer != NULL )
++        delete[] tmpBuffer;
++      tmpBuffer = new Complex[N];
++    }
++  }
++  else if( !isPowerOfTwo(newBlockSize) || newBlockSize <= 1 )
++    DEBUG_BREAK;
++}
+ 
+ void FourierTransformerRadix2::setDirection(int newDirection)
+ {
+diff --git a/Source/DSPCode/rosic_FourierTransformerRadix2.h b/Source/DSPCode/rosic_FourierTransformerRadix2.h
+index ce0f536..a3e93f5 100644
+--- a/Source/DSPCode/rosic_FourierTransformerRadix2.h
++++ b/Source/DSPCode/rosic_FourierTransformerRadix2.h
+@@ -136,26 +136,23 @@ namespace rosic
+ 
+     //=============================================================================================
+ 
+-  protected:
+-
+-    /** Updates the normalizationFactor member variable acording to a new blockSize, direction or
+-    normalizationMode. */
+-    void updateNormalizationFactor();
+-
+-    int    N;                    /**< the blocksize of the FFT. */
+-    int    logN;                 /**< Base 2 logarithm of the blocksize. */
+-    int    direction;            /**< The direction of the transform (@see: directions). */
+-    int    normalizationMode;    /**< The normalization mode (@see: normalizationModes. */
+-    double normalizationFactor;  /**< The normalization factor (can be 1, 1/N or 1/sqrt(N)). */
+-
+-    // work-area stuff for Ooura's fft-routines:
+-    double *w;                   /**< Table of the twiddle-factors. */
+-    int    *ip;                  /**< Work area for bit-reversal (index pointer?). */
+-
+-    // our own temporary storage area:
+-    Complex* tmpBuffer;
+-
+-  };
++  protected:
++
++    /** Updates the normalizationFactor member variable acording to a new blockSize, direction or
++    normalizationMode. */
++    void updateNormalizationFactor();
++
++    int    N;                    /**< the blocksize of the FFT. */
++    int    logN;                 /**< Base 2 logarithm of the blocksize. */
++    int    direction;            /**< The direction of the transform (@see: directions). */
++    int    normalizationMode;    /**< The normalization mode (@see: normalizationModes. */
++    double normalizationFactor;  /**< The normalization factor (can be 1, 1/N or 1/sqrt(N)). */
++
++    double *w;
++    int    *ip;
++    Complex *tmpBuffer;
++
++  };
+ 
+ } // end namespace rosic
+ 
+diff --git a/Source/DSPCode/rosic_MipMappedWaveTable.cpp b/Source/DSPCode/rosic_MipMappedWaveTable.cpp
+index dcaeda6..da61d50 100644
+--- a/Source/DSPCode/rosic_MipMappedWaveTable.cpp
++++ b/Source/DSPCode/rosic_MipMappedWaveTable.cpp
+@@ -1,25 +1,21 @@
+ #include "rosic_MipMappedWaveTable.h"
+ using namespace rosic;
+ 
+-MipMappedWaveTable::MipMappedWaveTable()
+-{
+-  // init member variables:
+-  sampleRate = 44100.0;
+-  waveform   = 0;
+-  symmetry   = 0.5;
+-
+-  // initialize internal 'back-panel' parameters
+-  tanhShaperFactor = dB2amp(36.9);
+-  tanhShaperOffset = 4.37;
+-  squarePhaseShift = 180.0;
+-
+-  // set up the fourier-transformer:
+-  fourierTransformer.setBlockSize(tableLength);
+-
+-  // initialize the buffers:
+-  initPrototypeTable();
+-  initTableSet();
+-}
++MipMappedWaveTable::MipMappedWaveTable()
++{
++  sampleRate = 44100.0;
++  waveform   = 0;
++  symmetry   = 0.5;
++
++  tanhShaperFactor = dB2amp(36.9);
++  tanhShaperOffset = 4.37;
++  squarePhaseShift = 180.0;
++
++  fourierTransformer.setBlockSize(tableLength);
++
++  initPrototypeTable();
++  initTableSet();
++}
+ 
+ MipMappedWaveTable::~MipMappedWaveTable()
+ {
+@@ -64,11 +60,11 @@ void MipMappedWaveTable::setSymmetry(double newSymmetry)
+ //-------------------------------------------------------------------------------------------------
+ // internal functions:
+ 
+-void MipMappedWaveTable::initPrototypeTable()
+-{
+-  for(int i=0; i<(tableLength+4); i++)
+-    prototypeTable[i] = 0.0;
+-}
++void MipMappedWaveTable::initPrototypeTable()
++{
++  for(int i=0; i<tableLength; i++)
++    prototypeTable[i] = 0.0f;
++}
+ 
+ void MipMappedWaveTable::initTableSet()
+ {
+@@ -110,7 +106,7 @@ void MipMappedWaveTable::normalize()
+ void MipMappedWaveTable::reverseTime()
+ {
+   int    i;
+-  double tmpTable[tableLength+4];
++  float tmpTable[tableLength+4];
+ 
+   for(i=0; i<tableLength; i++)
+     tmpTable[i] = prototypeTable[tableLength-i-1];
+@@ -134,59 +130,54 @@ void MipMappedWaveTable::renderWaveform()
+   }
+ }
+ 
+-void MipMappedWaveTable::generateMipMap()
+-{
+-  static double spectrum[tableLength];
+-  //static int    position, offset;
+-  static int t, i; // indices for the table and position
+-
+-  //position = 0;             // begin of the 1st table (index 0)
+-  //offset   = tableLength+4; // offset between tow tables, the 4 is the number
+-  // of additional samples used for interpolation
+-
+-  // copy the prototypeTable into the 1st table of the mipmap (this actually makes the
+-  // prototypeTable redundant - room for optimization here):
+-  t = 0;
+-  for(i=0; i<tableLength; i++)
+-    tableSet[0][i] = prototypeTable[i];
+-
+-  // additional sample(s) for the interpolator:
+-  tableSet[t][tableLength]   = tableSet[t][0];
+-  tableSet[t][tableLength+1] = tableSet[t][1];
+-  tableSet[t][tableLength+2] = tableSet[t][2];
+-  tableSet[t][tableLength+3] = tableSet[t][3];
+-
+-  // get the spectrum from the prototype-table:
+-  fourierTransformer.transformRealSignal(prototypeTable, spectrum);
+-
+-  // ensure that DC and Nyquist are zero:
+-  spectrum[0] = 0.0;
+-  spectrum[1] = 0.0;
+-
+-  // now, render the bandlimited versions by successively shrinking the
+-  // spectrum by one octave and iFFT'ing this spectrum:
+-  int lowBin, highBin;
+-  for(t=1; t<numTables; t++)
+-  {
+-    lowBin  = (int) (tableLength / pow(2.0, t));   // the cutoff-bin
+-    highBin = (int) (tableLength / pow(2.0, t-1)); // the bin up to which the
+-    // spectrum is currently still nonzero
+-
+-    // zero out the bins above the cutoff-bin:
+-    for(i=lowBin; i<highBin; i++)
+-      spectrum[i] = 0.0;
+-
+-    // transform the truncated spectrum back to the time-domain and store it in
+-    // the tableSet
+-    fourierTransformer.transformSymmetricSpectrum(spectrum, tableSet[t]);
+-
+-    // additional sample(s) for the interpolator:
+-    tableSet[t][tableLength]   = tableSet[t][0];
+-    tableSet[t][tableLength+1] = tableSet[t][1];
+-    tableSet[t][tableLength+2] = tableSet[t][2];
+-    tableSet[t][tableLength+3] = tableSet[t][3];
+-  }
+-}
++void MipMappedWaveTable::generateMipMap()
++{
++  double* spectrum = new double[tableLength];
++  double* tempIn = new double[tableLength];
++  double* tempOut = new double[tableLength];
++  int t, i;
++
++  t = 0;
++  for(i=0; i<tableLength; i++)
++    tableSet[0][i] = prototypeTable[i];
++
++  tableSet[t][tableLength]   = tableSet[t][0];
++  tableSet[t][tableLength+1] = tableSet[t][1];
++  tableSet[t][tableLength+2] = tableSet[t][2];
++  tableSet[t][tableLength+3] = tableSet[t][3];
++
++  for(i=0; i<tableLength; i++)
++    tempIn[i] = (double)prototypeTable[i];
++
++  fourierTransformer.transformRealSignal(tempIn, spectrum);
++
++  spectrum[0] = 0.0;
++  spectrum[1] = 0.0;
++
++  int lowBin, highBin;
++  for(t=1; t<numTables; t++)
++  {
++    lowBin  = (int) (tableLength / pow(2.0, t));
++    highBin = (int) (tableLength / pow(2.0, t-1));
++
++    for(i=lowBin; i<highBin; i++)
++      spectrum[i] = 0.0;
++
++    fourierTransformer.transformSymmetricSpectrum(spectrum, tempOut);
++
++    for(i=0; i<tableLength; i++)
++      tableSet[t][i] = (float)tempOut[i];
++
++    tableSet[t][tableLength]   = tableSet[t][0];
++    tableSet[t][tableLength+1] = tableSet[t][1];
++    tableSet[t][tableLength+2] = tableSet[t][2];
++    tableSet[t][tableLength+3] = tableSet[t][3];
++  }
++
++  delete[] tempOut;
++  delete[] tempIn;
++  delete[] spectrum;
++}
+ 
+ //-------------------------------------------------------------------------------------------------
+ // fill the prototype-table with various standard waveforms:
+diff --git a/Source/DSPCode/rosic_MipMappedWaveTable.h b/Source/DSPCode/rosic_MipMappedWaveTable.h
+index f6a3f64..5fc4627 100644
+--- a/Source/DSPCode/rosic_MipMappedWaveTable.h
++++ b/Source/DSPCode/rosic_MipMappedWaveTable.h
+@@ -166,24 +166,23 @@ namespace rosic
+     int    waveform;   // index of the currently chosen native waveform
+     double sampleRate; // the sampleRate
+ 
+-    double prototypeTable[tableLength];
++    float prototypeTable[tableLength];
+       // this is the prototype-table with full bandwidth. one additional sample (same as 
+       // prototypeTable[0]) for linear interpolation without need for table wraparound at the last 
+       // sample (-> saves one if-statement each audio-cycle) ...and a three further addtional 
+       // samples for more elaborate interpolations like cubic (not implemented yet, also:
+       // the fillWith...()-functions don't support these samples yet). */
+ 
+-    double tableSet[numTables][tableLength+4];
+-      // The multisample for anti-aliased waveform generation. The 4 additional values are equal 
+-      // to the first 4 values in the table for easier interpolation. The first index is for the 
+-      // table-number - index 0 accesses the first version which has full bandwidth, index 1 
+-      // accesses the second version which is bandlimited to Nyquist/2, 2->Nyquist/4, 
+-      // 3->Nyquist/8, etc. */
+-
+-    // embedded objects:
+-    FourierTransformerRadix2 fourierTransformer;
+-
+-    // internal parameters:
++    float tableSet[numTables][tableLength+4];
++      // The multisample for anti-aliased waveform generation. The 4 additional values are equal 
++      // to the first 4 values in the table for easier interpolation. The first index is for the 
++      // table-number - index 0 accesses the first version which has full bandwidth, index 1 
++      // accesses the second version which is bandlimited to Nyquist/2, 2->Nyquist/4, 
++      // 3->Nyquist/8, etc. */
++
++    FourierTransformerRadix2 fourierTransformer;
++
++    // internal parameters:
+     double tanhShaperFactor, tanhShaperOffset, squarePhaseShift;
+ 
+   };
+diff --git a/Source/DSPCode/rosic_Open303.cpp b/Source/DSPCode/rosic_Open303.cpp
+index 1ef8ac7..dd14a42 100644
+--- a/Source/DSPCode/rosic_Open303.cpp
++++ b/Source/DSPCode/rosic_Open303.cpp
+@@ -168,14 +168,22 @@ void Open303::noteOn(int noteNumber, int velocity)
+   if( velocity == 0 ) // velocity zero indicates note-off events
+   {
+     MidiNoteEvent releasedNote(noteNumber, 0);
+-    noteList.remove(releasedNote);
+-    if( noteList.empty() )
++    // Remove note from buffer
++    for(int i = 0; i < noteCount; i++) {
++      if(noteBuffer[i].getKey() == releasedNote.getKey()) {
++        for(int j = i; j < noteCount - 1; j++)
++          noteBuffer[j] = noteBuffer[j + 1];
++        noteCount--;
++        break;
++      }
++    }
++    if( (noteCount == 0) )
+     {
+       currentNote = -1;
+     }
+     else
+     {
+-      currentNote = noteList.front().getKey();
++      currentNote = noteBuffer[0].getKey();
+     }
+     releaseNote(noteNumber);
+   }
+@@ -183,7 +191,7 @@ void Open303::noteOn(int noteNumber, int velocity)
+   {
+     // check if the note-list is empty (indicating that currently no note is playing) - if so,
+     // trigger a new note, otherwise, slide to the new note:
+-    if( noteList.empty() )
++    if( (noteCount == 0) )
+       triggerNote(noteNumber, velocity >= 100);
+     else
+       slideToNote(noteNumber, velocity >= 100);
+@@ -192,14 +200,20 @@ void Open303::noteOn(int noteNumber, int velocity)
+ 
+     // and we need to add the new note to our list, of course:
+     MidiNoteEvent newNote(noteNumber, velocity);
+-    noteList.push_front(newNote);
++    // Add note to front of buffer
++    if(noteCount < MAX_NOTES) {
++      for(int i = noteCount; i > 0; i--)
++        noteBuffer[i] = noteBuffer[i - 1];
++      noteBuffer[0] = newNote;
++      noteCount++;
++    }
+   }
+   idle = false;
+ }
+ 
+ void Open303::allNotesOff()
+ {
+-  noteList.clear();
++  noteCount = 0;
+   ampEnv.noteOff();
+   currentNote = -1;
+ }
+@@ -263,7 +277,7 @@ void Open303::releaseNote(int noteNumber)
+   // check if the note-list is empty now. if so, trigger a release, otherwise slide to the note
+   // at the beginning of the list (this is the most recent one which is still in the list). this
+   // initiates a slide back to the most recent note that is still being held:
+-  if( noteList.empty() )
++  if( (noteCount == 0) )
+   {
+     ampEnv.noteOff();
+   }
+diff --git a/Source/DSPCode/rosic_Open303.h b/Source/DSPCode/rosic_Open303.h
+index f4ec6b4..f2f58ac 100644
+--- a/Source/DSPCode/rosic_Open303.h
++++ b/Source/DSPCode/rosic_Open303.h
+@@ -11,7 +11,7 @@
+ #include "rosic_EllipticQuarterBandFilter.h"
+ #include "rosic_AcidSequencer.h"
+ 
+-#include <list>
++// #include <list>  // Removed for embedded - using fixed array instead
+ #include <limits>
+ 
+ namespace rosic
+@@ -306,7 +306,10 @@ namespace rosic
+     bool   slideToNextNote;  // indicate that we need to slide to the next note in sequencer mode
+     bool   idle;             // flag to indicate that we have currently nothing to do in getSample
+ 
+-    std::list<MidiNoteEvent> noteList;
++    // Fixed-size note buffer (replaces std::list for embedded use)
++    static const int MAX_NOTES = 8;
++    MidiNoteEvent noteBuffer[MAX_NOTES];
++    int noteCount;
+ 
+   };
+ 

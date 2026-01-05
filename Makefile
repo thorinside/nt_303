@@ -25,7 +25,11 @@ OPEN303_SOURCES = \
     $(OPEN303_DIR)/GlobalFunctions.cpp \
     $(OPEN303_DIR)/fft4g.c
 
-SOURCES = src/nt_303.cpp src/stl_stubs.cpp $(OPEN303_SOURCES)
+ifeq ($(TARGET),hardware)
+    SOURCES = src/nt_303.cpp src/stl_stubs.cpp $(OPEN303_SOURCES)
+else
+    SOURCES = src/nt_303.cpp $(OPEN303_SOURCES)
+endif
 
 INCLUDES = -I. -Isrc -I./distingNT_API/include -I./$(OPEN303_DIR)
 
@@ -60,7 +64,7 @@ else ifeq ($(TARGET),test)
     ifeq ($(UNAME_S),Darwin)
         CXX = clang++
         CC = clang
-        CXXFLAGS = -std=c++11 -fPIC -O2 -Wall -fno-rtti -fno-exceptions
+        CXXFLAGS = -std=c++11 -fPIC -O2 -Wall -fno-rtti -fno-exceptions -DNT_TEST_BUILD
         CFLAGS = -fPIC -O2 -Wall
         LDFLAGS = -dynamiclib -undefined dynamic_lookup
         EXT = dylib
@@ -68,7 +72,7 @@ else ifeq ($(TARGET),test)
     ifeq ($(UNAME_S),Linux)
         CXX = g++
         CC = gcc
-        CXXFLAGS = -std=c++11 -fPIC -O2 -Wall -fno-rtti -fno-exceptions
+        CXXFLAGS = -std=c++11 -fPIC -O2 -Wall -fno-rtti -fno-exceptions -DNT_TEST_BUILD
         CFLAGS = -fPIC -O2 -Wall
         LDFLAGS = -shared
         EXT = so

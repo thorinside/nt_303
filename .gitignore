@@ -1,7 +1,26 @@
+# Build outputs
 build/
 plugins/
 *.o
 *.dylib
 *.so
 *.dll
+
+# macOS
 .DS_Store
+._*
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Dependency caches
+.cache/

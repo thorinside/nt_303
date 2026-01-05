@@ -11,42 +11,76 @@
 #include <cmath>
 #include <cstddef>
 
+#ifndef NT_TEST_BUILD
 namespace {
-    constexpr size_t HEAP_SIZE = 8192;
-    constexpr size_t BLOCK_SIZE = 64;
-    constexpr size_t NUM_BLOCKS = HEAP_SIZE / BLOCK_SIZE;
+    constexpr size_t DRAM_HEAP_SIZE = 262144;
+    constexpr size_t MIN_BLOCK = 32;
+    constexpr size_t ALIGN = 8;
     
-    alignas(8) char heapPool[HEAP_SIZE];
-    void* freeList = nullptr;
-    size_t heapOffset = 0;
+    struct BlockHeader {
+        size_t size;
+        BlockHeader* next;
+    };
     
-    void* allocBlock() {
-        if (freeList) {
-            void* ptr = freeList;
-            freeList = *static_cast<void**>(freeList);
-            return ptr;
-        }
-        if (heapOffset + BLOCK_SIZE > HEAP_SIZE) {
-            for (;;) {}
-        }
-        void* ptr = heapPool + heapOffset;
-        heapOffset += BLOCK_SIZE;
-        return ptr;
+    char* heapPool = nullptr;
+    size_t heapSize = 0;
+    size_t heapUsed = 0;
+    BlockHeader* freeList = nullptr;
+    
+    size_t alignUp(size_t n) {
+        return (n + ALIGN - 1) & ~(ALIGN - 1);
     }
     
-    void freeBlock(void* ptr) {
-        if (!ptr) return;
-        if (ptr < heapPool || ptr >= heapPool + HEAP_SIZE) return;
-        *static_cast<void**>(ptr) = freeList;
-        freeList = ptr;
+    void initHeap(void* ptr, size_t size) {
+        heapPool = static_cast<char*>(ptr);
+        heapSize = size;
+        heapUsed = 0;
+        freeList = nullptr;
+    }
+    
+    void* heapAlloc(size_t size) {
+        if (!heapPool) return nullptr;
+        
+        size = alignUp(size + sizeof(BlockHeader));
+        if (size < MIN_BLOCK) size = MIN_BLOCK;
+        
+        BlockHeader** prev = &freeList;
+        BlockHeader* curr = freeList;
+        while (curr) {
+            if (curr->size >= size) {
+                *prev = curr->next;
+                return reinterpret_cast<char*>(curr) + sizeof(BlockHeader);
+            }
+            prev = &curr->next;
+            curr = curr->next;
+        }
+        
+        if (heapUsed + size > heapSize) {
+            return nullptr;
+        }
+        
+        BlockHeader* block = reinterpret_cast<BlockHeader*>(heapPool + heapUsed);
+        block->size = size;
+        block->next = nullptr;
+        heapUsed += size;
+        
+        return reinterpret_cast<char*>(block) + sizeof(BlockHeader);
+    }
+    
+    void heapFree(void* ptr) {
+        if (!ptr || !heapPool) return;
+        char* p = static_cast<char*>(ptr);
+        if (p < heapPool || p >= heapPool + heapSize) return;
+        
+        BlockHeader* block = reinterpret_cast<BlockHeader*>(p - sizeof(BlockHeader));
+        block->next = freeList;
+        freeList = block;
     }
 }
 
 void* operator new(size_t size) {
-    if (size > BLOCK_SIZE) {
-        for (;;) {}
-    }
-    return allocBlock();
+    void* p = heapAlloc(size);
+    return p;
 }
 
 void* operator new[](size_t size) {
@@ -54,20 +88,21 @@ void* operator new[](size_t size) {
 }
 
 void operator delete(void* ptr) noexcept {
-    freeBlock(ptr);
+    heapFree(ptr);
 }
 
 void operator delete[](void* ptr) noexcept {
-    freeBlock(ptr);
+    heapFree(ptr);
 }
 
 void operator delete(void* ptr, size_t) noexcept {
-    freeBlock(ptr);
+    heapFree(ptr);
 }
 
 void operator delete[](void* ptr, size_t) noexcept {
-    freeBlock(ptr);
+    heapFree(ptr);
 }
+#endif
 
 #include "compat.h"
 #include "rosic_Open303.h"
@@ -97,11 +132,15 @@ struct _NT303Algorithm : public _NT_algorithm {
     bool cvNoteActive;
     int currentCVNote;
     int lastMidiChannel;
+    
+    float smoothCutoff;
+    float smoothResonance;
+    float smoothDecay;
 };
 
 static const _NT_parameter parameters[] = {
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE("Output", 1, 13)
-    { .name = "Cutoff",     .min = 200,  .max = 20000, .def = 1000, .unit = kNT_unitHz,      .scaling = kNT_scalingNone, .enumStrings = NULL },
+    { .name = "Cutoff",     .min = 20,   .max = 20000, .def = 1000, .unit = kNT_unitHz,      .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Resonance",  .min = 0,    .max = 100,   .def = 50,   .unit = kNT_unitPercent, .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Env Mod",    .min = 0,    .max = 100,   .def = 25,   .unit = kNT_unitPercent, .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Decay",      .min = 30,   .max = 3000,  .def = 300,  .unit = kNT_unitMs,      .scaling = kNT_scalingNone, .enumStrings = NULL },
@@ -121,30 +160,22 @@ static const uint8_t pageSound[] = {
     kParamEnvMod,
     kParamDecay,
     kParamAccent,
-    kParamWaveform
-};
-
-static const uint8_t pageAmp[] = {
+    kParamWaveform,
     kParamVolume,
     kParamSlideTime
-};
-
-static const uint8_t pageCV[] = {
-    kParamPitchCV,
-    kParamGate,
-    kParamAccentCV
 };
 
 static const uint8_t pageRouting[] = {
     kParamOutput,
     kParamOutputMode,
-    kParamMidiChannel
+    kParamMidiChannel,
+    kParamPitchCV,
+    kParamGate,
+    kParamAccentCV
 };
 
 static const _NT_parameterPage pages[] = {
     { .name = "Sound",   .numParams = ARRAY_SIZE(pageSound),   .params = pageSound },
-    { .name = "Amp",     .numParams = ARRAY_SIZE(pageAmp),     .params = pageAmp },
-    { .name = "CV In",   .numParams = ARRAY_SIZE(pageCV),      .params = pageCV },
     { .name = "Routing", .numParams = ARRAY_SIZE(pageRouting), .params = pageRouting },
 };
 
@@ -156,7 +187,11 @@ static const _NT_parameterPages parameterPages = {
 void calculateRequirements(_NT_algorithmRequirements& req, const int32_t* specifications) {
     req.numParameters = ARRAY_SIZE(parameters);
     req.sram = sizeof(_NT303Algorithm);
+#ifndef NT_TEST_BUILD
+    req.dram = DRAM_HEAP_SIZE;
+#else
     req.dram = 0;
+#endif
     req.dtc = 0;
     req.itc = 0;
 }
@@ -164,6 +199,9 @@ void calculateRequirements(_NT_algorithmRequirements& req, const int32_t* specif
 _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
                          const _NT_algorithmRequirements& req,
                          const int32_t* specifications) {
+#ifndef NT_TEST_BUILD
+    initHeap(ptrs.dram, req.dram);
+#endif
     _NT303Algorithm* alg = new (ptrs.sram) _NT303Algorithm();
     
     alg->parameters = parameters;
@@ -176,6 +214,10 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
     alg->currentCVNote = 60;
     alg->lastMidiChannel = 0;
     
+    alg->smoothCutoff = (float)parameters[kParamCutoff].def;
+    alg->smoothResonance = (float)parameters[kParamResonance].def;
+    alg->smoothDecay = (float)parameters[kParamDecay].def;
+    
     alg->synth.setCutoff(parameters[kParamCutoff].def);
     alg->synth.setResonance(parameters[kParamResonance].def);
     alg->synth.setEnvMod(parameters[kParamEnvMod].def);
@@ -183,7 +225,7 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
     alg->synth.setAccent(parameters[kParamAccent].def);
     alg->synth.setWaveform(parameters[kParamWaveform].def / 100.0);
     alg->synth.setVolume(parameters[kParamVolume].def);
-    alg->synth.setSlideTime(parameters[kParamSlideTime].def);
+    alg->synth.setSlideTime(parameters[kParamSlideTime].def * 0.005);
     
     return alg;
 }
@@ -214,7 +256,7 @@ void parameterChanged(_NT_algorithm* self, int p) {
             pThis->synth.setVolume(pThis->v[kParamVolume]);
             break;
         case kParamSlideTime:
-            pThis->synth.setSlideTime(pThis->v[kParamSlideTime]);
+            pThis->synth.setSlideTime(pThis->v[kParamSlideTime] * 0.005);
             break;
         case kParamMidiChannel:
             pThis->lastMidiChannel = pThis->v[kParamMidiChannel] - 1;
@@ -240,7 +282,23 @@ void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
     float* out = busFrames + (pThis->v[kParamOutput] - 1) * numFrames;
     bool replace = pThis->v[kParamOutputMode];
     
+    float targetCutoff = (float)pThis->v[kParamCutoff];
+    float targetRes = (float)pThis->v[kParamResonance];
+    float targetDecay = (float)pThis->v[kParamDecay];
+    
+    constexpr float smoothCoeff = 0.00005f;
+    
     for (int i = 0; i < numFrames; ++i) {
+        pThis->smoothCutoff += smoothCoeff * (targetCutoff - pThis->smoothCutoff);
+        pThis->smoothResonance += smoothCoeff * (targetRes - pThis->smoothResonance);
+        pThis->smoothDecay += smoothCoeff * (targetDecay - pThis->smoothDecay);
+        
+        if ((i & 7) == 0) {
+            pThis->synth.setCutoff(pThis->smoothCutoff);
+            pThis->synth.setResonance(pThis->smoothResonance);
+            pThis->synth.setDecay(pThis->smoothDecay);
+        }
+
         if (gateCV) {
             // Schmitt trigger hysteresis: rise at >1.5V, fall at <1.0V
             bool gateHigh = pThis->prevGate 
@@ -308,8 +366,64 @@ void midiMessage(_NT_algorithm* self, uint8_t b0, uint8_t b1, uint8_t b2) {
 }
 
 bool draw(_NT_algorithm* self) {
-    NT_drawText(10, 20, "NT-303");
-    return false;
+    _NT303Algorithm* pThis = (_NT303Algorithm*)self;
+    
+    char buf[32];
+    
+    NT_drawText(128, 24, "NT-303", 15, kNT_textCentre, kNT_textLarge);
+    
+    NT_drawText(43, 42, "CUT", 10, kNT_textCentre);
+    NT_intToString(buf, pThis->v[kParamCutoff]);
+    NT_drawText(43, 56, buf, 15, kNT_textCentre);
+    
+    NT_drawText(128, 42, "RES", 10, kNT_textCentre);
+    NT_intToString(buf, pThis->v[kParamResonance]);
+    NT_drawText(128, 56, buf, 15, kNT_textCentre);
+    
+    NT_drawText(213, 42, "DEC", 10, kNT_textCentre);
+    NT_intToString(buf, pThis->v[kParamDecay]);
+    NT_drawText(213, 56, buf, 15, kNT_textCentre);
+    
+    return true;
+}
+
+uint32_t hasCustomUi(_NT_algorithm* self) {
+    (void)self;
+    return kNT_potL | kNT_potC | kNT_potR;
+}
+
+void customUi(_NT_algorithm* self, const _NT_uiData& data) {
+    _NT303Algorithm* pThis = (_NT303Algorithm*)self;
+    int algIndex = NT_algorithmIndex(self);
+    uint32_t offset = NT_parameterOffset();
+    
+    if (data.controls & kNT_potL) {
+        float cutoff = 20.0f * powf(1000.0f, data.pots[0]);
+        NT_setParameterFromUi(algIndex, kParamCutoff + offset, (int16_t)cutoff);
+        pThis->smoothCutoff = cutoff;
+    }
+    
+    if (data.controls & kNT_potC) {
+        float res = data.pots[1] * 100.0f;
+        NT_setParameterFromUi(algIndex, kParamResonance + offset, (int16_t)res);
+        pThis->smoothResonance = res;
+    }
+    
+    if (data.controls & kNT_potR) {
+        float decay = 30.0f + data.pots[2] * (3000.0f - 30.0f);
+        NT_setParameterFromUi(algIndex, kParamDecay + offset, (int16_t)decay);
+        pThis->smoothDecay = decay;
+    }
+}
+
+void setupUi(_NT_algorithm* self, _NT_float3& pots) {
+    _NT303Algorithm* pThis = (_NT303Algorithm*)self;
+    
+    float cutoff = (float)pThis->v[kParamCutoff];
+    if (cutoff < 20.0f) cutoff = 20.0f;
+    pots[0] = logf(cutoff / 20.0f) / logf(1000.0f);
+    pots[1] = (float)pThis->v[kParamResonance] / 100.0f;
+    pots[2] = (float)(pThis->v[kParamDecay] - 30) / (3000.0f - 30.0f);
 }
 
 static const _NT_factory factory = {
@@ -328,9 +442,9 @@ static const _NT_factory factory = {
     .midiRealtime = NULL,
     .midiMessage = midiMessage,
     .tags = kNT_tagInstrument,
-    .hasCustomUi = NULL,
-    .customUi = NULL,
-    .setupUi = NULL,
+    .hasCustomUi = hasCustomUi,
+    .customUi = customUi,
+    .setupUi = setupUi,
     .serialise = NULL,
     .deserialise = NULL,
     .midiSysEx = NULL,

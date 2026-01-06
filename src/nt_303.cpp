@@ -109,6 +109,7 @@ void operator delete[](void* ptr, size_t) noexcept {
 
 #include "compat.h"
 #include "rosic_Open303.h"
+#include "nt_soft_takeover.h"
 
 enum {
     kParamOutput,
@@ -142,6 +143,8 @@ struct _NT303Algorithm : public _NT_algorithm {
     float smoothDecay;
     
     float lastSampleRate;
+    
+    SoftTakeoverState uiState;
 };
 
 static char const * const enumStringsOversampling[] = { "1x", "2x", "4x" };
@@ -223,6 +226,8 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
     alg->smoothCutoff = (float)parameters[kParamCutoff].def;
     alg->smoothResonance = (float)parameters[kParamResonance].def;
     alg->smoothDecay = (float)parameters[kParamDecay].def;
+    
+    initSoftTakeover(&alg->uiState);
     
     alg->synth.setCutoff(parameters[kParamCutoff].def);
     alg->synth.setResonance(parameters[kParamResonance].def);
@@ -392,65 +397,125 @@ void midiMessage(_NT_algorithm* self, uint8_t b0, uint8_t b1, uint8_t b2) {
     }
 }
 
+static const char* getParamName(int paramIdx) {
+    switch (paramIdx) {
+        case kParamCutoff:     return "Cutoff";
+        case kParamResonance:  return "Resonance";
+        case kParamEnvMod:     return "Env Mod";
+        case kParamDecay:      return "Decay";
+        case kParamAccent:     return "Accent";
+        case kParamWaveform:   return "Waveform";
+        case kParamVolume:     return "Volume";
+        case kParamSlideTime:  return "Slide";
+        default:               return "";
+    }
+}
+
+static const char* getParamUnit(int paramIdx) {
+    switch (paramIdx) {
+        case kParamCutoff:     return "Hz";
+        case kParamDecay:
+        case kParamSlideTime:  return "ms";
+        case kParamVolume:     return "dB";
+        case kParamResonance:
+        case kParamEnvMod:
+        case kParamAccent:
+        case kParamWaveform:   return "%";
+        default:               return "";
+    }
+}
+
 bool draw(_NT_algorithm* self) {
     _NT303Algorithm* pThis = (_NT303Algorithm*)self;
     
     char buf[32];
     
-    NT_drawText(128, 24, "NT-303", 15, kNT_textCentre, kNT_textLarge);
+    NT_drawText(128, 12, "NT-303", 15, kNT_textCentre, kNT_textLarge);
     
-    NT_drawText(43, 42, "CUT", 10, kNT_textCentre);
-    NT_intToString(buf, pThis->v[kParamCutoff]);
-    NT_drawText(43, 56, buf, 15, kNT_textCentre);
+    decrementDisplayTimeout(&pThis->uiState);
     
-    NT_drawText(128, 42, "RES", 10, kNT_textCentre);
-    NT_intToString(buf, pThis->v[kParamResonance]);
-    NT_drawText(128, 56, buf, 15, kNT_textCentre);
-    
-    NT_drawText(213, 42, "DEC", 10, kNT_textCentre);
-    NT_intToString(buf, pThis->v[kParamDecay]);
-    NT_drawText(213, 56, buf, 15, kNT_textCentre);
+    if (isDisplayActive(&pThis->uiState)) {
+        const char* name = getParamName(pThis->uiState.activeParam);
+        const char* unit = getParamUnit(pThis->uiState.activeParam);
+        
+        NT_drawText(128, 36, name, 12, kNT_textCentre, kNT_textNormal);
+        
+        int len = NT_intToString(buf, pThis->uiState.activeParamValue);
+        buf[len++] = ' ';
+        int unitLen = 0;
+        while (unit[unitLen]) {
+            buf[len++] = unit[unitLen++];
+        }
+        buf[len] = 0;
+        
+        NT_drawText(128, 52, buf, 15, kNT_textCentre, kNT_textLarge);
+    } else {
+        NT_drawText(43, 36, "CUT", 8, kNT_textCentre, kNT_textTiny);
+        NT_intToString(buf, pThis->v[kParamCutoff]);
+        NT_drawText(43, 48, buf, 12, kNT_textCentre);
+        
+        NT_drawText(85, 36, "RES", 8, kNT_textCentre, kNT_textTiny);
+        NT_intToString(buf, pThis->v[kParamResonance]);
+        NT_drawText(85, 48, buf, 12, kNT_textCentre);
+        
+        NT_drawText(128, 36, "ENV", 8, kNT_textCentre, kNT_textTiny);
+        NT_intToString(buf, pThis->v[kParamEnvMod]);
+        NT_drawText(128, 48, buf, 12, kNT_textCentre);
+        
+        NT_drawText(171, 36, "DEC", 8, kNT_textCentre, kNT_textTiny);
+        NT_intToString(buf, pThis->v[kParamDecay]);
+        NT_drawText(171, 48, buf, 12, kNT_textCentre);
+        
+        NT_drawText(213, 36, "WAV", 8, kNT_textCentre, kNT_textTiny);
+        NT_intToString(buf, pThis->v[kParamWaveform]);
+        NT_drawText(213, 48, buf, 12, kNT_textCentre);
+    }
     
     return true;
 }
 
 uint32_t hasCustomUi(_NT_algorithm* self) {
     (void)self;
-    return kNT_potL | kNT_potC | kNT_potR;
+    return kNT_potL | kNT_potC | kNT_potR |
+           kNT_potButtonL | kNT_potButtonC | kNT_potButtonR |
+           kNT_encoderL | kNT_encoderR;
 }
+
+static const PotConfig potConfigs[3] = {
+    { kParamCutoff,   kParamResonance, { 20.0f, 0.0f, true, 1000.0f }, { 0.0f, 100.0f, false, 0.0f } },
+    { kParamEnvMod,   kParamDecay,     { 0.0f, 100.0f, false, 0.0f },  { 30.0f, 3000.0f, false, 0.0f } },
+    { kParamWaveform, kParamSlideTime, { 0.0f, 100.0f, false, 0.0f },  { 1.0f, 200.0f, false, 0.0f } },
+};
 
 void customUi(_NT_algorithm* self, const _NT_uiData& data) {
     _NT303Algorithm* pThis = (_NT303Algorithm*)self;
     int algIndex = NT_algorithmIndex(self);
     uint32_t offset = NT_parameterOffset();
     
-    if (data.controls & kNT_potL) {
-        float cutoff = 20.0f * powf(1000.0f, data.pots[0]);
-        NT_setParameterFromUi(algIndex, kParamCutoff + offset, (int16_t)cutoff);
-        pThis->smoothCutoff = cutoff;
+    for (int pot = 0; pot < 3; pot++) {
+        PotResult result = processPot(&pThis->uiState, pot, data, potConfigs[pot]);
+        if (result.changed) {
+            NT_setParameterFromUi(algIndex, result.paramIdx + offset, (int16_t)result.paramValue);
+            
+            if (result.paramIdx == kParamCutoff) pThis->smoothCutoff = result.paramValue;
+            else if (result.paramIdx == kParamResonance) pThis->smoothResonance = result.paramValue;
+            else if (result.paramIdx == kParamDecay) pThis->smoothDecay = result.paramValue;
+        }
     }
     
-    if (data.controls & kNT_potC) {
-        float res = data.pots[1] * 100.0f;
-        NT_setParameterFromUi(algIndex, kParamResonance + offset, (int16_t)res);
-        pThis->smoothResonance = res;
+    int newVal;
+    if (processEncoder(&pThis->uiState, 0, data, kParamVolume, pThis->v[kParamVolume], -40, 6, 1, &newVal)) {
+        NT_setParameterFromUi(algIndex, kParamVolume + offset, newVal);
     }
     
-    if (data.controls & kNT_potR) {
-        float decay = 30.0f + data.pots[2] * (3000.0f - 30.0f);
-        NT_setParameterFromUi(algIndex, kParamDecay + offset, (int16_t)decay);
-        pThis->smoothDecay = decay;
+    if (processEncoder(&pThis->uiState, 1, data, kParamAccent, pThis->v[kParamAccent], 0, 100, 5, &newVal)) {
+        NT_setParameterFromUi(algIndex, kParamAccent + offset, newVal);
     }
 }
 
 void setupUi(_NT_algorithm* self, _NT_float3& pots) {
     _NT303Algorithm* pThis = (_NT303Algorithm*)self;
-    
-    float cutoff = (float)pThis->v[kParamCutoff];
-    if (cutoff < 20.0f) cutoff = 20.0f;
-    pots[0] = logf(cutoff / 20.0f) / logf(1000.0f);
-    pots[1] = (float)pThis->v[kParamResonance] / 100.0f;
-    pots[2] = (float)(pThis->v[kParamDecay] - 30) / (3000.0f - 30.0f);
+    setupSoftTakeover(&pThis->uiState, pots, potConfigs, pThis->v);
 }
 
 static const _NT_factory factory = {

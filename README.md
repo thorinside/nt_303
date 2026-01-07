@@ -14,13 +14,24 @@ Download `nt_303.o` from the [Releases](https://github.com/thorinside/nt_303/rel
 - Accent support via MIDI velocity or CV
 - MIDI and CV/Gate control
 
-## Custom UI (3 Pots)
+## Custom UI
 
-| Pot | Parameter | Range |
-|-----|-----------|-------|
-| Left | Cutoff | 20-20000 Hz (exponential) |
-| Center | Resonance | 0-100% |
-| Right | Decay | 30-3000 ms |
+### Pots
+
+| Pot | Turn | Push + Turn |
+|-----|------|-------------|
+| Left | Cutoff (20-20kHz) | Resonance (0-100%) |
+| Center | Env Mod (0-100%) | Decay (30-3000ms) |
+| Right | Waveform (0-100%) | Slide Time (1-200ms) |
+
+### Encoders (Push + Turn)
+
+| Encoder | Parameter | Range |
+|---------|-----------|-------|
+| Left | Volume | -40 to +6 dB |
+| Center | Accent | 0-100% |
+
+Pots use soft takeover to prevent parameter jumps when switching between stored values and physical positions.
 
 ## Parameters
 

@@ -1,8 +1,8 @@
 diff --git a/Source/DSPCode/rosic_FourierTransformerRadix2.cpp b/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
-index 61a1f12..e230da6 100644
+index 61a1f12..7a0b7f6 100644
 --- a/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
 +++ b/Source/DSPCode/rosic_FourierTransformerRadix2.cpp
-@@ -1,311 +1,307 @@
+@@ -1,311 +1,313 @@
 -#include "rosic_FourierTransformerRadix2.h"
 -#include "fft4g.c"
 -using namespace rosic;
@@ -315,7 +315,13 @@ index 61a1f12..e230da6 100644
 -
 -
 +#include "rosic_FourierTransformerRadix2.h"
-+#include "fft4g.c"
++
++// Ooura FFT prototypes - compiled separately as C, linked here
++extern "C" {
++    void cdft(int n, int isgn, double *a, int *ip, double *w);
++    void rdft(int n, int isgn, double *a, int *ip, double *w);
++}
++
 +using namespace rosic;
 +
 +//-------------------------------------------------------------------------------------------------

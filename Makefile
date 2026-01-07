@@ -48,15 +48,24 @@ ifeq ($(TARGET),hardware)
                -Wall \
                -fPIC \
                -fno-rtti \
-               -fno-exceptions
+               -fno-exceptions \
+               -ffunction-sections \
+               -fdata-sections \
+               -fno-unwind-tables \
+               -fno-asynchronous-unwind-tables \
+               -fno-threadsafe-statics
     CFLAGS = -mcpu=cortex-m7 \
              -mfpu=fpv5-d16 \
              -mfloat-abi=hard \
              -mthumb \
              -Os \
              -Wall \
-             -fPIC
-    LDFLAGS = -Wl,--relocatable -nostdlib
+             -fPIC \
+             -ffunction-sections \
+             -fdata-sections \
+             -fno-unwind-tables \
+             -fno-asynchronous-unwind-tables
+    LDFLAGS = -Wl,--relocatable -Wl,--gc-sections -Wl,-u,pluginEntry -nostdlib
     OUTPUT_DIR = plugins
     BUILD_DIR = build/hardware
     OUTPUT = $(OUTPUT_DIR)/$(PLUGIN_NAME).o

@@ -11,9 +11,10 @@
 #include <cmath>
 #include <cstddef>
 
+constexpr size_t DRAM_HEAP_SIZE = 262144;
+
 #ifndef NT_TEST_BUILD
 namespace {
-    constexpr size_t DRAM_HEAP_SIZE = 262144;
     constexpr size_t MIN_BLOCK = 32;
     constexpr size_t ALIGN = 8;
     
@@ -208,7 +209,9 @@ void calculateRequirements(_NT_algorithmRequirements& req, const int32_t* specif
 _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs,
                          const _NT_algorithmRequirements& req,
                          const int32_t* specifications) {
+#ifndef NT_TEST_BUILD
     initHeap(ptrs.dram, DRAM_HEAP_SIZE);
+#endif
     
     _NT303Algorithm* alg = new (ptrs.sram) _NT303Algorithm();
     

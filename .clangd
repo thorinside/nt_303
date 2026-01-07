@@ -1,0 +1,14 @@
+CompileFlags:
+  Add:
+    - -xc++
+    - -std=c++11
+    - -I.
+    - -Isrc
+    - -IdistingNT_API/include
+    - -Iopen303/Source/DSPCode
+    - -DNT_TEST_BUILD
+  Remove:
+    - -mcpu=*
+    - -mfpu=*
+    - -mfloat-abi=*
+    - -mthumb

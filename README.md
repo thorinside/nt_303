@@ -22,7 +22,7 @@ Download `nt_303.o` from the [Releases](https://github.com/thorinside/nt_303/rel
 |-----|------|-------------|
 | Left | Cutoff (20-20kHz) | Resonance (0-100%) |
 | Center | Env Mod (0-100%) | Decay (30-3000ms) |
-| Right | Waveform (0-100%) | Slide Time (1-200ms) |
+| Right | Slide Time (1-200ms) | Waveform (0-100%) |
 
 ### Encoders
 

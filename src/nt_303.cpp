@@ -487,7 +487,7 @@ uint32_t hasCustomUi(_NT_algorithm* self) {
 static const PotConfig potConfigs[3] = {
     { kParamCutoff,   kParamResonance, { 20.0f, 0.0f, true, 1000.0f }, { 0.0f, 100.0f, false, 0.0f } },
     { kParamEnvMod,   kParamDecay,     { 0.0f, 100.0f, false, 0.0f },  { 30.0f, 3000.0f, false, 0.0f } },
-    { kParamWaveform, kParamSlideTime, { 0.0f, 100.0f, false, 0.0f },  { 1.0f, 200.0f, false, 0.0f } },
+    { kParamSlideTime, kParamWaveform, { 1.0f, 200.0f, false, 0.0f },  { 0.0f, 100.0f, false, 0.0f } },
 };
 
 void customUi(_NT_algorithm* self, const _NT_uiData& data) {

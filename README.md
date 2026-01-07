@@ -41,7 +41,7 @@ Pots use soft takeover to prevent parameter jumps when switching between stored 
 | Resonance | 0-100% | 50% | Filter resonance |
 | Env Mod | 0-100% | 25% | Filter envelope depth |
 | Decay | 30-3000 ms | 300 ms | Filter envelope decay |
-| Accent | 0-100% | 50% | Accent intensity |
+| Accent | 0-100% | 50% | Accent intensity (adds filter sweep and volume boost on accented notes) |
 | Waveform | 0-100% | 0% | Saw (0%) to square (100%) blend |
 | Volume | -40 to +6 dB | -12 dB | Output level |
 | Slide Time | 1-200 ms | 60 ms | Portamento time for legato notes |

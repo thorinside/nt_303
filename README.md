@@ -29,7 +29,7 @@ Download `nt_303.o` from the [Releases](https://github.com/thorinside/nt_303/rel
 | Encoder | Parameter | Range |
 |---------|-----------|-------|
 | Left | Volume | -40 to +6 dB |
-| Center | Accent | 0-100% |
+| Right | Accent | 0-100% |
 
 Pots use soft takeover to prevent parameter jumps when switching between stored values and physical positions.
 

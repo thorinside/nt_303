@@ -51,7 +51,8 @@ ifeq ($(TARGET),hardware)
                -fdata-sections \
                -fno-unwind-tables \
                -fno-asynchronous-unwind-tables \
-               -fno-threadsafe-statics
+               -fno-threadsafe-statics \
+               -fno-math-errno
     CFLAGS = -mcpu=cortex-m7 \
              -mfpu=fpv5-d16 \
              -mfloat-abi=hard \
@@ -62,7 +63,8 @@ ifeq ($(TARGET),hardware)
              -ffunction-sections \
              -fdata-sections \
              -fno-unwind-tables \
-             -fno-asynchronous-unwind-tables
+             -fno-asynchronous-unwind-tables \
+             -fno-math-errno
     LDFLAGS = -Wl,--relocatable -Wl,--gc-sections -Wl,-u,pluginEntry -nostdlib
     OUTPUT_DIR = plugins
     BUILD_DIR = build/hardware

@@ -2088,10 +2088,10 @@ index f6a3f64..f8415e9 100644
 +
 +#endif // rosic_MipMappedWaveTable_h
 diff --git a/Source/DSPCode/rosic_Open303.cpp b/Source/DSPCode/rosic_Open303.cpp
-index 1ef8ac7..498459a 100644
+index 1ef8ac7..9f3a02f 100644
 --- a/Source/DSPCode/rosic_Open303.cpp
 +++ b/Source/DSPCode/rosic_Open303.cpp
-@@ -1,331 +1,359 @@
+@@ -1,331 +1,363 @@
 -#include "rosic_Open303.h"
 -
 -using namespace rosic;
@@ -2517,7 +2517,9 @@ index 1ef8ac7..498459a 100644
 +  ampDeClicker.setSampleRate(    (float)newSampleRate);
 +  rc1.setSampleRate(             (float)newSampleRate);
 +  rc2.setSampleRate(             (float)newSampleRate);
++#ifdef OPEN303_USE_SEQUENCER
 +  sequencer.setSampleRate(              newSampleRate);
++#endif
 +
 +  highpass2.setSampleRate     (         newSampleRate);
 +  allpass.setSampleRate       (         newSampleRate);
@@ -2601,6 +2603,7 @@ index 1ef8ac7..498459a 100644
 +
 +void Open303::noteOn(int noteNumber, int velocity)
 +{
++#ifdef OPEN303_USE_SEQUENCER
 +  if( sequencer.modeWasChanged() )
 +    allNotesOff();
 +
@@ -2622,6 +2625,7 @@ index 1ef8ac7..498459a 100644
 +    idle = false;
 +    return;
 +  }
++#endif
 +
 +  if( velocity == 0 )
 +  {
@@ -2783,10 +2787,10 @@ index 1ef8ac7..498459a 100644
 +  n2 = 1.0; // test
 +}
 diff --git a/Source/DSPCode/rosic_Open303.h b/Source/DSPCode/rosic_Open303.h
-index f4ec6b4..94a599b 100644
+index f4ec6b4..10cf52b 100644
 --- a/Source/DSPCode/rosic_Open303.h
 +++ b/Source/DSPCode/rosic_Open303.h
-@@ -1,411 +1,419 @@
+@@ -1,411 +1,425 @@
 -#ifndef rosic_Open303_h
 -#define rosic_Open303_h
 -
@@ -3209,7 +3213,9 @@ index f4ec6b4..94a599b 100644
 +#include "rosic_DecayEnvelope.h"
 +#include "rosic_LeakyIntegrator.h"
 +#include "rosic_EllipticQuarterBandFilter.h"
++#ifdef OPEN303_USE_SEQUENCER
 +#include "rosic_AcidSequencer.h"
++#endif
 +
 +// #include <list>  // Removed for embedded - using fixed array instead
 +#include <limits>
@@ -3457,7 +3463,9 @@ index f4ec6b4..94a599b 100644
 +    OnePoleFilter             highpass1, highpass2, allpass; 
 +    BiquadFilter              notch;
 +    EllipticQuarterBandFilter antiAliasFilter;
++#ifdef OPEN303_USE_SEQUENCER
 +    AcidSequencer             sequencer;
++#endif
 +
 +  protected:
 +
@@ -3528,6 +3536,7 @@ index f4ec6b4..94a599b 100644
 +    if( idle )
 +      return 0.0;
 +
++#ifdef OPEN303_USE_SEQUENCER
 +    // check the sequencer if we have some note to trigger:
 +    if( sequencer.getSequencerMode() != AcidSequencer::OFF )
 +    {
@@ -3562,6 +3571,7 @@ index f4ec6b4..94a599b 100644
 +        }
 +      }
 +    }
++#endif
 +
 +    // calculate instantaneous oscillator frequency and set up the oscillator:
 +    double instFreq = pitchSlewLimiter.getSample(oscFreq);

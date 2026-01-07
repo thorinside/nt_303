@@ -21,8 +21,6 @@ OPEN303_SOURCES = \
     $(OPEN303_DIR)/rosic_MidiNoteEvent.cpp \
     $(OPEN303_DIR)/rosic_RealFunctions.cpp \
     $(OPEN303_DIR)/rosic_NumberManipulations.cpp \
-    $(OPEN303_DIR)/rosic_AcidSequencer.cpp \
-    $(OPEN303_DIR)/rosic_AcidPattern.cpp \
     $(OPEN303_DIR)/rosic_FourierTransformerRadix2.cpp \
     $(OPEN303_DIR)/rosic_Complex.cpp \
     $(OPEN303_DIR)/GlobalFunctions.cpp \

@@ -24,7 +24,7 @@ Download `nt_303.o` from the [Releases](https://github.com/thorinside/nt_303/rel
 | Center | Env Mod (0-100%) | Decay (30-3000ms) |
 | Right | Waveform (0-100%) | Slide Time (1-200ms) |
 
-### Encoders (Push + Turn)
+### Encoders
 
 | Encoder | Parameter | Range |
 |---------|-----------|-------|

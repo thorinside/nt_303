@@ -152,7 +152,7 @@ static char const * const enumStringsOversampling[] = { "1x", "2x", "4x" };
 
 static const _NT_parameter parameters[] = {
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE("Output", 1, 13)
-    { .name = "Cutoff",     .min = 20,   .max = 20000, .def = 1000, .unit = kNT_unitHz,      .scaling = kNT_scalingNone, .enumStrings = NULL },
+    { .name = "Cutoff",     .min = 20,   .max = 10000, .def = 1000, .unit = kNT_unitHz,      .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Resonance",  .min = 0,    .max = 100,   .def = 50,   .unit = kNT_unitPercent, .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Env Mod",    .min = 0,    .max = 100,   .def = 25,   .unit = kNT_unitPercent, .scaling = kNT_scalingNone, .enumStrings = NULL },
     { .name = "Decay",      .min = 30,   .max = 3000,  .def = 300,  .unit = kNT_unitMs,      .scaling = kNT_scalingNone, .enumStrings = NULL },
@@ -433,7 +433,7 @@ bool draw(_NT_algorithm* self) {
     
     char buf[32];
     
-    NT_drawText(128, 12, "NT-303", 15, kNT_textCentre, kNT_textLarge);
+    NT_drawText(128, 20, "NT-303", 15, kNT_textCentre, kNT_textLarge);
     
     decrementDisplayTimeout(&pThis->uiState);
     
@@ -485,7 +485,7 @@ uint32_t hasCustomUi(_NT_algorithm* self) {
 }
 
 static const PotConfig potConfigs[3] = {
-    { kParamCutoff,   kParamResonance, { 20.0f, 0.0f, true, 1000.0f }, { 0.0f, 100.0f, false, 0.0f } },
+    { kParamCutoff,   kParamResonance, { 20.0f, 0.0f, true, 500.0f }, { 0.0f, 100.0f, false, 0.0f } },
     { kParamEnvMod,   kParamDecay,     { 0.0f, 100.0f, false, 0.0f },  { 30.0f, 3000.0f, false, 0.0f } },
     { kParamSlideTime, kParamWaveform, { 1.0f, 200.0f, false, 0.0f },  { 0.0f, 100.0f, false, 0.0f } },
 };

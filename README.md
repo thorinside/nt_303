@@ -20,7 +20,7 @@ Download `nt_303.o` from the [Releases](https://github.com/thorinside/nt_303/rel
 
 | Pot | Turn | Push + Turn |
 |-----|------|-------------|
-| Left | Cutoff (20-20kHz) | Resonance (0-100%) |
+| Left | Cutoff (20-10kHz) | Resonance (0-100%) |
 | Center | Env Mod (0-100%) | Decay (30-3000ms) |
 | Right | Slide Time (1-200ms) | Waveform (0-100%) |
 
@@ -37,7 +37,7 @@ Pots use soft takeover to prevent parameter jumps when switching between stored 
 
 | Parameter | Range | Default | Description |
 |-----------|-------|---------|-------------|
-| Cutoff | 20-20000 Hz | 1000 Hz | Filter cutoff frequency |
+| Cutoff | 20-10000 Hz | 1000 Hz | Filter cutoff frequency |
 | Resonance | 0-100% | 50% | Filter resonance |
 | Env Mod | 0-100% | 25% | Filter envelope depth |
 | Decay | 30-3000 ms | 300 ms | Filter envelope decay |

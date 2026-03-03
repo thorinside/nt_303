@@ -189,8 +189,8 @@ static const uint8_t pageRouting[] = {
 };
 
 static const _NT_parameterPage pages[] = {
-    { .name = "Sound",   .numParams = ARRAY_SIZE(pageSound),   .params = pageSound },
-    { .name = "Routing", .numParams = ARRAY_SIZE(pageRouting), .params = pageRouting },
+    { .name = "Sound",   .numParams = ARRAY_SIZE(pageSound),   .group = 0, .unused = {}, .params = pageSound },
+    { .name = "Routing", .numParams = ARRAY_SIZE(pageRouting), .group = 0, .unused = {}, .params = pageRouting },
 };
 
 static const _NT_parameterPages parameterPages = {
